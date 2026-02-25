@@ -702,10 +702,36 @@ def run_dual_ma_grid(price: pd.Series, leverage_list: list,
     daily_ret = price.pct_change()
     results = []
 
+    # Warm-up: skip first max(slow_range) trading days so all MAs are valid.
+    # Signal is forced to 0 during warm-up AND until the first fresh 0→1
+    # transition after warm-up (investor starts in cash, waits for new buy signal).
+    warmup = max(slow_range)
+    warmup_date = price.index[warmup]
+    print(f"    warm-up: {warmup} trading days trimmed (metrics start {warmup_date.date()})")
+
+    def _apply_warmup(sig):
+        """Force signal=0 during warm-up; if signal is already 1 at warm-up end,
+        stay in cash until signal goes to 0 first, then follow normally."""
+        sig_mod = sig.copy()
+        sig_mod.loc[:warmup_date] = 0
+        # If original signal was 1 at warm-up boundary, wait for it to go 0 first
+        if sig.loc[warmup_date] == 1:
+            orig_post = sig.loc[warmup_date:]
+            first_zero = orig_post[orig_post == 0].index
+            if len(first_zero) > 0:
+                sig_mod.loc[warmup_date:first_zero[0]] = 0
+        return sig_mod
+
+    def _trim(cum):
+        """Trim warm-up period and renormalize to 1.0."""
+        trimmed = cum.loc[warmup_date:]
+        return trimmed / trimmed.iloc[0]
+
     # --- B&H reference for each leverage ---
     for lev in leverage_list:
         bh = run_buy_and_hold(price, leverage=lev,
                               expense_ratio=expense_ratio if lev > 1 else 0.0)
+        bh = _trim(bh)
         bh_metrics = calc_metrics(bh, tbill_rate=tbill_rate if isinstance(tbill_rate, (int, float)) else rf_series.mean() * 252 if rf_series is not None else 0.03,
                                   rf_series=rf_series)
         bh_mrd = _max_recovery_days(bh)
@@ -725,14 +751,19 @@ def run_dual_ma_grid(price: pd.Series, leverage_list: list,
     done = 0
 
     for slow, fast in combos:
-        sig = signal_dual_ma(price, slow=slow, fast=fast)
-        tpy = signal_trades_per_year(sig)
-        total_flips = int((sig.diff().abs() > 0).sum())
+        sig_raw = signal_dual_ma(price, slow=slow, fast=fast)
+        sig = _apply_warmup(sig_raw)
 
         for lev in leverage_list:
             cum = run_lrs(price, sig, leverage=lev, expense_ratio=expense_ratio,
                           tbill_rate=tbill_rate, signal_lag=signal_lag,
                           commission=commission)
+            cum = _trim(cum)
+            sig_trimmed = sig.loc[warmup_date:]
+
+            tpy = signal_trades_per_year(sig_trimmed)
+            total_flips = int((sig_trimmed.diff().abs() > 0).sum())
+
             tbill_scalar = (rf_series.mean() * 252 if rf_series is not None
                            else tbill_rate if isinstance(tbill_rate, (int, float)) else 0.03)
             m = calc_metrics(cum, tbill_rate=tbill_scalar, rf_series=rf_series)
