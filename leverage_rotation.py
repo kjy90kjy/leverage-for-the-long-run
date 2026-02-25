@@ -247,27 +247,31 @@ def calc_metrics(cum: pd.Series, benchmark_cum: pd.Series = None,
     total_ret = cum.iloc[-1] / cum.iloc[0]
     cagr = total_ret ** (1 / n_years) - 1 if n_years > 0 else 0
 
-    # Annualised RF for Sharpe/Sortino
+    # Daily RF for Sharpe/Sortino
     if rf_series is not None:
         rf_aligned = rf_series.reindex(daily_ret.index, method="ffill").fillna(0)
         avg_annual_rf = rf_aligned.mean() * 252
+        rf_daily = rf_aligned
     else:
         avg_annual_rf = tbill_rate if isinstance(tbill_rate, (int, float)) else 0.03
+        rf_daily = avg_annual_rf / 252
+
+    # Arithmetic annualised mean return (Sharpe 1994: use arithmetic, not geometric)
+    arith_annual = daily_ret.mean() * 252
 
     # Volatility
     vol = daily_ret.std() * np.sqrt(252)
 
-    # Sharpe
-    sharpe = (cagr - avg_annual_rf) / vol if vol > 0 else 0
+    # Sharpe — arithmetic mean excess / annualised vol
+    sharpe = (arith_annual - avg_annual_rf) / vol if vol > 0 else 0
 
-    # Sortino (downside deviation)
-    if rf_series is not None:
-        excess_daily = daily_ret - rf_aligned
-    else:
-        excess_daily = daily_ret - avg_annual_rf / 252
-    downside_ret = excess_daily[excess_daily < 0]
-    downside_dev = downside_ret.std() * np.sqrt(252)
-    sortino = (cagr - avg_annual_rf) / downside_dev if downside_dev > 0 else 0
+    # Sortino — target downside deviation per Sortino & van der Meer (1991):
+    # TDD = sqrt( mean( min(r - rf, 0)^2 ) ) over ALL observations
+    excess_daily = daily_ret - rf_daily
+    downside_diff = excess_daily.copy()
+    downside_diff[downside_diff > 0] = 0.0
+    downside_dev = np.sqrt((downside_diff ** 2).mean()) * np.sqrt(252)
+    sortino = (arith_annual - avg_annual_rf) / downside_dev if downside_dev > 0 else 0
 
     # MDD
     running_max = cum.cummax()
@@ -651,6 +655,21 @@ def run_etf_comparison(config: dict):
 # 8. DUAL MA GRID SEARCH + HEATMAP
 # ──────────────────────────────────────────────
 
+def _max_entry_drawdown(cum: pd.Series, signal: pd.Series, signal_lag: int) -> float:
+    """MDD measured from running max of entry-point equity (not equity curve peak).
+
+    Peak only updates when a new trade is entered (signal 0→1).
+    Drawdown measured only while in position (signal=1).
+    """
+    sig = signal.shift(signal_lag) if signal_lag > 0 else signal
+    sig = sig.reindex(cum.index).fillna(0)
+    entries = (sig.diff() == 1)
+    entry_equity = cum.where(entries).ffill().fillna(cum.iloc[0])
+    entry_peak = entry_equity.cummax()
+    dd = (cum / entry_peak - 1).where(sig == 1)
+    return float(dd.min()) if dd.notna().any() else 0.0
+
+
 def _max_recovery_days(cum: pd.Series) -> int:
     """Maximum number of trading days to recover from a drawdown peak."""
     running_max = cum.cummax()
@@ -693,7 +712,9 @@ def run_dual_ma_grid(price: pd.Series, leverage_list: list,
         results.append({
             "slow": 0, "fast": 0, "leverage": lev,
             "CAGR": bh_metrics["CAGR"], "Sharpe": bh_metrics["Sharpe"],
+            "Sortino": bh_metrics["Sortino"],
             "Vol": bh_metrics["Volatility"], "MDD": bh_metrics["MDD"],
+            "MDD_Entry": bh_metrics["MDD"],  # B&H: same as MDD (always in position)
             "Trades_Year": 0.0, "Total_Trades": 0,
             "Max_Recovery_Days": bh_mrd,
         })
@@ -716,11 +737,14 @@ def run_dual_ma_grid(price: pd.Series, leverage_list: list,
                            else tbill_rate if isinstance(tbill_rate, (int, float)) else 0.03)
             m = calc_metrics(cum, tbill_rate=tbill_scalar, rf_series=rf_series)
             mrd = _max_recovery_days(cum)
+            mdd_entry = _max_entry_drawdown(cum, sig, signal_lag)
 
             results.append({
                 "slow": slow, "fast": fast, "leverage": lev,
                 "CAGR": m["CAGR"], "Sharpe": m["Sharpe"],
+                "Sortino": m["Sortino"],
                 "Vol": m["Volatility"], "MDD": m["MDD"],
+                "MDD_Entry": mdd_entry,
                 "Trades_Year": tpy, "Total_Trades": total_flips,
                 "Max_Recovery_Days": mrd,
             })
@@ -793,7 +817,7 @@ def plot_heatmap(grid_df: pd.DataFrame, metric: str, title: str, fname: str,
     # Format colorbar labels
     if metric in ("CAGR", "MDD", "Vol"):
         cbar.ax.yaxis.set_major_formatter(mticker.PercentFormatter(1.0))
-    elif metric == "Sharpe":
+    elif metric in ("Sharpe", "Sortino"):
         cbar.ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
 
     # ★ markers
@@ -831,7 +855,7 @@ def _metric_fmt(metric: str):
     """Return a formatter function for a metric."""
     if metric in ("CAGR", "MDD", "Vol"):
         return lambda v: f"{v:.2%}"
-    elif metric == "Sharpe":
+    elif metric in ("Sharpe", "Sortino"):
         return lambda v: f"{v:.2f}"
     elif metric in ("Trades_Year",):
         return lambda v: f"{v:.1f}"
@@ -839,6 +863,104 @@ def _metric_fmt(metric: str):
         return lambda v: f"{int(v):,}"
     else:
         return lambda v: f"{v:.4f}"
+
+
+def plot_composite_heatmap(grid_df: pd.DataFrame, leverage: float,
+                           slow_range: range, fast_range: range,
+                           title_prefix: str, fname: str):
+    """6-panel heatmap: CAGR, MDD, Max Recovery Days, Sharpe, Sortino + Composite Rank.
+
+    Composite rank = average percentile rank across 5 metrics (higher = better).
+    """
+    sub = grid_df[(grid_df["leverage"] == leverage) & (grid_df["slow"] > 0)].copy()
+    if sub.empty:
+        print(f"  [Warning] No data for composite heatmap: {fname}")
+        return
+
+    # --- Compute composite rank (percentile, 0~1, higher = better) ---
+    sub = sub.copy()
+    sub["rank_CAGR"] = sub["CAGR"].rank(pct=True)
+    sub["rank_Sharpe"] = sub["Sharpe"].rank(pct=True)
+    sub["rank_Sortino"] = sub["Sortino"].rank(pct=True)
+    sub["rank_MDD"] = sub["MDD"].rank(pct=True)           # MDD is negative, higher = shallower
+    sub["rank_Recovery"] = sub["Max_Recovery_Days"].rank(pct=True, ascending=False)  # lower = better
+    sub["Composite"] = (sub["rank_CAGR"] + sub["rank_Sharpe"] + sub["rank_Sortino"]
+                        + sub["rank_MDD"] + sub["rank_Recovery"]) / 5.0
+
+    # Panel definitions: (metric, label, cmap, fmt_func)
+    panels = [
+        ("CAGR",               "CAGR",                "RdYlGn",   lambda v: f"{v:.2%}"),
+        ("Sharpe",             "Sharpe",               "RdYlGn",   lambda v: f"{v:.2f}"),
+        ("Sortino",            "Sortino",              "RdYlGn",   lambda v: f"{v:.2f}"),
+        ("MDD",                "Max Drawdown",         "RdYlGn",   lambda v: f"{v:.2%}"),
+        ("Max_Recovery_Days",  "Max Recovery (days)",  "RdYlGn_r", lambda v: f"{int(v):,}"),
+        ("Composite",          "Composite Rank",       "RdYlGn",   lambda v: f"{v:.3f}"),
+    ]
+
+    slow_vals = sorted(sub["slow"].unique())
+    fast_vals = sorted(sub["fast"].unique())
+
+    fig, axes = plt.subplots(2, 3, figsize=(24, 14))
+    axes = axes.flatten()
+
+    # B&H reference
+    bh_rows = grid_df[(grid_df["leverage"] == leverage) & (grid_df["slow"] == 0)]
+
+    for ax, (metric, label, cmap, fmt) in zip(axes, panels):
+        pivot = sub.pivot_table(index="fast", columns="slow", values=metric, aggfunc="first")
+        pivot = pivot.reindex(index=fast_vals, columns=slow_vals)
+        data = pivot.values
+
+        im = ax.imshow(data, aspect="auto", origin="lower", cmap=cmap,
+                       extent=[slow_vals[0] - 1.5, slow_vals[-1] + 1.5,
+                               fast_vals[0] - 0.5, fast_vals[-1] + 0.5])
+        cbar = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02)
+        if metric in ("CAGR", "MDD"):
+            cbar.ax.yaxis.set_major_formatter(mticker.PercentFormatter(1.0))
+
+        # Best marker
+        higher_is_better = metric not in ("MDD", "Max_Recovery_Days")
+        if higher_is_better:
+            best_idx = sub[metric].idxmax()
+        elif metric == "MDD":
+            best_idx = sub[metric].idxmax()  # negative, max = shallowest
+        else:
+            best_idx = sub[metric].idxmin()
+        best_row = sub.loc[best_idx]
+        best_slow, best_fast = int(best_row["slow"]), int(best_row["fast"])
+        best_val = best_row[metric]
+
+        ax.plot(best_slow, best_fast, marker="*", color="red", markersize=14,
+                markeredgecolor="black", markeredgewidth=0.8, zorder=10)
+
+        # Annotation
+        parts = [f"★ Best: ({best_slow},{best_fast}) = {fmt(best_val)}"]
+        if len(bh_rows) > 0 and metric in bh_rows.columns:
+            bh_val = bh_rows[metric].iloc[0]
+            parts.append(f"B&H = {fmt(bh_val)}")
+        ax.text(0.01, 0.99, "\n".join(parts), transform=ax.transAxes, fontsize=8,
+                verticalalignment="top",
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.85),
+                fontfamily="monospace")
+
+        ax.set_xlabel("Slow MA", fontsize=10)
+        ax.set_ylabel("Fast MA", fontsize=10)
+        ax.set_title(label, fontsize=11, fontweight="bold")
+
+    fig.suptitle(f"{title_prefix} ({leverage:.0f}x)", fontsize=15, fontweight="bold", y=0.98)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.savefig(OUT_DIR / fname, dpi=150)
+    plt.close(fig)
+    print(f"  → saved {OUT_DIR / fname}")
+
+    # Print composite top-10
+    top10 = sub.nlargest(10, "Composite")
+    print(f"\n  Composite Rank Top 10 ({leverage:.0f}x):")
+    print(f"  {'slow':>5} {'fast':>5} {'Comp':>6} {'CAGR':>8} {'Sharpe':>7} {'Sortino':>8} {'MDD':>9} {'Recovery':>9}")
+    for _, r in top10.iterrows():
+        print(f"  {int(r['slow']):5d} {int(r['fast']):5d} {r['Composite']:6.3f} "
+              f"{r['CAGR']:7.2%} {r['Sharpe']:7.3f} {r['Sortino']:8.3f} "
+              f"{r['MDD']:8.2%} {int(r['Max_Recovery_Days']):8d}")
 
 
 def run_dual_ma_analysis(price: pd.Series, label: str, safe_ticker: str,
@@ -867,9 +989,15 @@ def run_dual_ma_analysis(price: pd.Series, label: str, safe_ticker: str,
         rf_series=rf_series, commission=commission,
     )
 
+    # Save full grid results to CSV
+    csv_path = OUT_DIR / f"{safe_ticker}_grid_results.csv"
+    grid_df.to_csv(csv_path, index=False, float_format="%.6f")
+    print(f"  → saved {csv_path}")
+
     # Metric definitions for heatmaps
     metrics = [
         ("Sharpe",             "Sharpe Ratio",       False),
+        ("Sortino",            "Sortino Ratio",      False),
         ("CAGR",               "CAGR",               False),
         ("Trades_Year",        "Trades / Year",      True),
         ("Total_Trades",       "Total Trades",       True),
@@ -885,44 +1013,46 @@ def run_dual_ma_analysis(price: pd.Series, label: str, safe_ticker: str,
                          leverage=lev, slow_range=slow_range, fast_range=fast_range,
                          reverse_cmap=reverse)
 
+        # Composite 6-panel heatmap
+        plot_composite_heatmap(grid_df, leverage=lev,
+                               slow_range=slow_range, fast_range=fast_range,
+                               title_prefix=label,
+                               fname=f"{safe_ticker}_composite_{lev}x.png")
+
     # --- Summary tables ---
     for lev in leverage_list:
         sub = grid_df[(grid_df["leverage"] == lev) & (grid_df["slow"] > 0)]
         bh = grid_df[(grid_df["leverage"] == lev) & (grid_df["slow"] == 0)]
 
-        top10 = sub.nlargest(10, "Sharpe")
+        top20 = sub.nlargest(20, "Sortino")
         baseline = sub[(sub["slow"] == 200) & (sub["fast"] == 1)]
 
-        print(f"\n{'=' * 70}")
-        print(f"  {label} — Top 10 by Sharpe ({lev}x)")
-        print(f"{'=' * 70}")
-        display_cols = ["slow", "fast", "Sharpe", "CAGR", "MDD",
-                        "Trades_Year", "Total_Trades", "Max_Recovery_Days"]
-        fmt_df = top10[display_cols].copy()
+        print(f"\n{'=' * 90}")
+        print(f"  {label} — Top 20 by Sortino ({lev}x)")
+        print(f"{'=' * 90}")
+        display_cols = ["slow", "fast", "Sortino", "Sharpe", "CAGR", "Vol", "MDD", "MDD_Entry",
+                        "Trades_Year", "Max_Recovery_Days"]
+        fmt_df = top20[display_cols].copy()
         fmt_df["CAGR"] = fmt_df["CAGR"].map("{:.2%}".format)
+        fmt_df["Vol"] = fmt_df["Vol"].map("{:.2%}".format)
         fmt_df["MDD"] = fmt_df["MDD"].map("{:.2%}".format)
+        fmt_df["MDD_Entry"] = fmt_df["MDD_Entry"].map("{:.2%}".format)
+        fmt_df["Sortino"] = fmt_df["Sortino"].map("{:.3f}".format)
         fmt_df["Sharpe"] = fmt_df["Sharpe"].map("{:.3f}".format)
         fmt_df["Trades_Year"] = fmt_df["Trades_Year"].map("{:.1f}".format)
+        fmt_df["Max_Recovery_Days"] = fmt_df["Max_Recovery_Days"].astype(int)
         print(fmt_df.to_string(index=False))
 
-        # Direct comparison: B&H vs MA200 vs Best
+        # Direct comparison: B&H vs MA200 vs Best Sortino
         print(f"\n  --- Comparison ({lev}x) ---")
         if len(bh) > 0:
             b = bh.iloc[0]
-            print(f"  B&H {lev}x:      Sharpe={b['Sharpe']:.3f}  CAGR={b['CAGR']:.2%}  MDD={b['MDD']:.2%}")
+            print(f"  B&H {lev}x:       Sortino={b['Sortino']:.3f}  Sharpe={b['Sharpe']:.3f}  CAGR={b['CAGR']:.2%}  MDD={b['MDD']:.2%}  Recovery={int(b['Max_Recovery_Days'])}d")
         if len(baseline) > 0:
             b = baseline.iloc[0]
-            print(f"  MA200 (200,1):  Sharpe={b['Sharpe']:.3f}  CAGR={b['CAGR']:.2%}  MDD={b['MDD']:.2%}  Trades/Yr={b['Trades_Year']:.1f}")
-        best = sub.loc[sub["Sharpe"].idxmax()]
-        print(f"  Best Sharpe:    ({int(best['slow'])},{int(best['fast'])})  Sharpe={best['Sharpe']:.3f}  CAGR={best['CAGR']:.2%}  MDD={best['MDD']:.2%}  Trades/Yr={best['Trades_Year']:.1f}")
-
-        # Whipsaw reduction
-        if len(baseline) > 0:
-            baseline_tpy = baseline.iloc[0]["Trades_Year"]
-            best_tpy = best["Trades_Year"]
-            if baseline_tpy > 0:
-                reduction = (1 - best_tpy / baseline_tpy) * 100
-                print(f"  Whipsaw reduction vs MA200: {reduction:.1f}% ({baseline_tpy:.1f} → {best_tpy:.1f} trades/yr)")
+            print(f"  MA200 (200,1):   Sortino={b['Sortino']:.3f}  Sharpe={b['Sharpe']:.3f}  CAGR={b['CAGR']:.2%}  MDD={b['MDD']:.2%}  Recovery={int(b['Max_Recovery_Days'])}d  Trades/Yr={b['Trades_Year']:.1f}")
+        best = sub.loc[sub["Sortino"].idxmax()]
+        print(f"  Best Sortino:    ({int(best['slow'])},{int(best['fast'])})  Sortino={best['Sortino']:.3f}  Sharpe={best['Sharpe']:.3f}  CAGR={best['CAGR']:.2%}  MDD={best['MDD']:.2%}  Recovery={int(best['Max_Recovery_Days'])}d  Trades/Yr={best['Trades_Year']:.1f}")
 
 
 # ──────────────────────────────────────────────
@@ -1163,6 +1293,89 @@ if __name__ == "__main__":
     bh3x_5m = calc_metrics(bh3x_5, tbill_rate=0.0)
     print(f"  B&H 3x:  CAGR={bh3x_5m['CAGR']:.3%}  Total={bh3x_5m['Total Return']:.1f}x  "
           f"MDD={bh3x_5m['MDD']:.2%}")
+
+    # ══════════════════════════════════════════════
+    # Part 12: TQQQ-Calibrated NDX Grid Search (1985-2025)
+    # ══════════════════════════════════════════════
+    # Calibrated via calibrate_tqqq.py: fixed ER that best matches actual TQQQ.
+    CALIBRATED_ER = 0.035
+
+    print("\n" + "=" * 70)
+    print("  PART 12: TQQQ-Calibrated NDX Grid Search (1985-2025)")
+    print(f"  조건: expense={CALIBRATED_ER:.2%} (calibrated), tbill=Ken French RF, lag=1, comm=0.2%, 3x only")
+    print("  Grid: slow 50-350 (step 3) × fast 2-50 (step 1)")
+    print("  핵심 변경: expense → calibrated, tbill → Ken French RF, lag → 1")
+    print("=" * 70)
+
+    # Reuse ndx_price from Part 9 and rf_series_grid from Part 7
+    run_dual_ma_analysis(
+        price=ndx_price,
+        label="NDX Calibrated (1985-2025, lag=1, TQQQ-calibrated costs)",
+        safe_ticker="NDX_calibrated",
+        expense_ratio=CALIBRATED_ER,
+        tbill_rate=rf_series_grid,
+        signal_lag=1,
+        rf_series=rf_series_grid,
+        fast_range=range(2, 51),
+        slow_range=range(50, 351, 3),
+        leverage_list=[3],
+        commission=0.002,
+    )
+
+    # --- Part 12 vs Part 10 comparison: eulb combos with calibrated costs ---
+    print("\n" + "=" * 70)
+    print("  Part 12 vs Part 10: eulb 주요 조합 비교 (calibrated vs eulb 조건)")
+    print(f"  Part 12: ER={CALIBRATED_ER:.2%}, tbill=Ken French RF, lag=1, comm=0.2%")
+    print(f"  Part 10: ER=0%, tbill=0, lag=1, comm=0.2%")
+    print("=" * 70)
+
+    for fast, slow, desc in eulb_combos:
+        # Part 12 conditions (calibrated)
+        sig = signal_dual_ma(ndx_price, slow=slow, fast=fast)
+        cum_cal = run_lrs(ndx_price, sig, leverage=3.0,
+                          expense_ratio=CALIBRATED_ER,
+                          tbill_rate=rf_series_grid,
+                          signal_lag=1, commission=eulb_commission)
+        m_cal = calc_metrics(cum_cal, rf_series=rf_series_grid)
+
+        # Part 10 conditions (eulb)
+        cum_eulb = run_lrs(ndx_price, sig, leverage=3.0,
+                           expense_ratio=0.0, tbill_rate=0.0,
+                           signal_lag=1, commission=eulb_commission)
+        m_eulb = calc_metrics(cum_eulb, tbill_rate=0.0)
+
+        tpy = signal_trades_per_year(sig)
+        print(f"  ({fast:2d}, {slow:3d}) [{desc}]")
+        print(f"    Calibrated: CAGR={m_cal['CAGR']:.3%}  Total={m_cal['Total Return']:>10.1f}x  Sharpe={m_cal['Sharpe']:.3f}")
+        print(f"    eulb cond:  CAGR={m_eulb['CAGR']:.3%}  Total={m_eulb['Total Return']:>10.1f}x  Sharpe={m_eulb['Sharpe']:.3f}")
+        print(f"    CAGR diff:  {(m_cal['CAGR'] - m_eulb['CAGR'])*100:+.2f}pp")
+
+    # B&H 3x calibrated
+    bh3x_cal = run_buy_and_hold(ndx_price, leverage=3.0, expense_ratio=CALIBRATED_ER)
+    bh3x_cal_m = calc_metrics(bh3x_cal, rf_series=rf_series_grid)
+    print(f"\n  B&H 3x (calibrated): CAGR={bh3x_cal_m['CAGR']:.3%}  "
+          f"Total={bh3x_cal_m['Total Return']:.1f}x  MDD={bh3x_cal_m['MDD']:.2%}")
+    print(f"  B&H 3x (eulb cond):  CAGR={bh3x_m['CAGR']:.3%}  "
+          f"Total={bh3x_m['Total Return']:.1f}x  MDD={bh3x_m['MDD']:.2%}")
+
+    # --- 2010-present validation: B&H 3x calibrated vs actual TQQQ ---
+    print(f"\n  --- 2010-present: Calibrated B&H 3x vs TQQQ (sanity check) ---")
+    try:
+        qqq_val = download("QQQ", start="2010-02-11", end="2025-12-31")
+        tqqq_val = download("TQQQ", start="2010-02-11", end="2025-12-31")
+        common_val = qqq_val.index.intersection(tqqq_val.index)
+        qqq_val = qqq_val.loc[common_val]
+        tqqq_val = tqqq_val.loc[common_val]
+
+        sim_cal = run_buy_and_hold(qqq_val, leverage=3.0, expense_ratio=CALIBRATED_ER)
+        actual_tqqq = run_buy_and_hold(tqqq_val, leverage=1.0, expense_ratio=0.0)
+        m_sim = calc_metrics(sim_cal)
+        m_actual = calc_metrics(actual_tqqq)
+        print(f"  Sim 3x (ER={CALIBRATED_ER:.2%}): CAGR={m_sim['CAGR']:.3%}  Total={m_sim['Total Return']:.1f}x")
+        print(f"  TQQQ (actual):        CAGR={m_actual['CAGR']:.3%}  Total={m_actual['Total Return']:.1f}x")
+        print(f"  CAGR diff:            {(m_sim['CAGR'] - m_actual['CAGR'])*100:+.3f}pp")
+    except Exception as e:
+        print(f"  [Warning] Validation skipped: {e}")
 
     print("\n" + "=" * 70)
     print("  Done! Charts saved in:", OUT_DIR)
