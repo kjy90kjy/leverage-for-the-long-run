@@ -19,22 +19,22 @@ python validate_eulb.py        # Validate against eulb's published results
 
 All scripts are standalone — no build system or test framework. Output PNGs go to `output/`.
 
-All scripts use a Windows UTF-8 boilerplate at the top (`sys.stdout` wrapping + `warnings.filterwarnings("ignore")`) — preserve this pattern when creating new scripts.
+All scripts use a Windows UTF-8 boilerplate at the top (`sys.stdout` wrapping + `warnings.filterwarnings("ignore")`) — preserve this pattern when creating new scripts. Matplotlib uses `Agg` backend (headless, file-only output — no interactive windows).
 
 ## Architecture
 
-### leverage_rotation.py (main script, ~1360 lines)
+### leverage_rotation.py (main script, ~1410 lines)
 
 Organized as a pipeline with these layers:
 
 1. **Data layer** (lines ~34-144): `download()` fetches from yfinance; `_add_shiller_dividends()` synthesizes S&P 500 total returns using Yale Shiller dividend data; `download_ken_french_rf()` gets daily risk-free rates
-2. **Signal layer** (lines ~148-175): `signal_ma()` (price vs SMA), `signal_dual_ma()` (golden cross / fast vs slow SMA), `signal_rsi()`
-3. **Strategy engine** (lines ~178-229): `run_lrs()` is the core backtest loop — applies leverage when signal=1, T-Bill returns when signal=0, with configurable signal lag and per-trade commission. `run_buy_and_hold()` for benchmarks
-4. **Metrics** (lines ~233-308): `calc_metrics()` computes CAGR, Sharpe (arithmetic mean, Sharpe 1994), Sortino (TDD per Sortino & van der Meer 1991), MDD, Beta, Alpha. `_max_entry_drawdown()` computes MDD from running max of entry-point equity (not equity curve peak)
-5. **Visualization** (lines ~311-396): cumulative returns, drawdowns, volatility bars, rolling excess
-6. **Dual MA grid search** (lines ~650-1050): `run_dual_ma_grid()` tests all (slow, fast) MA combos × leverage levels; `plot_heatmap()` generates 2D metric heatmaps; `plot_composite_heatmap()` generates 6-panel composite; `run_dual_ma_analysis()` is the high-level orchestrator that runs a full grid search, generates all heatmaps, and saves full results to CSV
+2. **Signal layer** (lines ~151-175): `signal_ma()` (price vs SMA), `signal_dual_ma()` (golden cross / fast vs slow SMA), `signal_rsi()`
+3. **Strategy engine** (lines ~181-229): `run_lrs()` is the core backtest loop — applies leverage when signal=1, T-Bill returns when signal=0, with configurable signal lag and per-trade commission. `run_buy_and_hold()` for benchmarks
+4. **Metrics** (lines ~235-315): `calc_metrics()` computes CAGR, Sharpe (arithmetic mean, Sharpe 1994), Sortino (TDD per Sortino & van der Meer 1991), MDD, Beta, Alpha. `_max_entry_drawdown()` computes MDD from running max of entry-point equity (not equity curve peak). `_max_recovery_days()` computes longest peak-to-recovery span.
+5. **Visualization** (lines ~318-400): cumulative returns, drawdowns, volatility bars, rolling excess
+6. **Dual MA grid search** (lines ~658-1050): `run_dual_ma_grid()` tests all (slow, fast) MA combos × leverage levels; `plot_heatmap()` generates 2D metric heatmaps; `plot_composite_heatmap()` generates 6-panel composite; `run_dual_ma_analysis()` is the high-level orchestrator that runs a full grid search, generates all heatmaps, and saves full results to CSV
 
-The main block (lines ~425-1240) runs 12 analysis parts sequentially, each with a config dict specifying ticker, date range, signal parameters, and lag settings.
+The main block (lines ~477-1413) runs 12 analysis parts sequentially, each with a config dict specifying ticker, date range, signal parameters, and lag settings.
 
 ### Analysis Parts
 
@@ -64,10 +64,11 @@ The main block (lines ~425-1240) runs 12 analysis parts sequentially, each with 
 
 - `run_part12_only.py`: Runs Part 12 only (TQQQ-calibrated NDX grid, slow step 1). ~15 min.
 - `run_parts7to12.py`: Runs Parts 7-12 (all grid searches). ~45 min.
+- `run_grid_all_indices.py`: Runs 3x calibrated grid search for all three indices (S&P 500 TR, IXIC, NDX) with `CALIBRATED_ER=0.035`, `lag=1`, `comm=0.2%`, `slow_range step=1`.
 
 ### Script dependencies
 
-`diag_nasdaq.py`, `validate_eulb.py`, and `calibrate_tqqq.py` all import from `leverage_rotation.py`. Note: `validate_eulb.py` has a hardcoded `sys.path.insert(0, "J:/레버_장투")` on line 18 that **must** be updated to match the local checkout path before running. `gen_diag.py` is a throwaway scratch file.
+`diag_nasdaq.py`, `validate_eulb.py`, and `calibrate_tqqq.py` all import from `leverage_rotation.py`. `validate_eulb.py` uses `sys.path.insert(0, script_dir)` relative to its own location — no manual path editing needed.
 
 ### calibrate_tqqq.py
 
@@ -113,5 +114,7 @@ This differs from `backtesting.py` where `trade_on_close=True` still uses next-d
 from leverage_rotation import (
     download, signal_ma, signal_dual_ma, run_lrs, run_buy_and_hold,
     calc_metrics, signal_trades_per_year, download_ken_french_rf,
+    run_dual_ma_analysis,
+    run_eulb1_comparison, run_eulb5_spotcheck, run_part12_comparison,
 )
 ```

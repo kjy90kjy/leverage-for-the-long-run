@@ -11,9 +11,7 @@ if sys.stdout.encoding != "utf-8":
 warnings.filterwarnings("ignore")
 
 from leverage_rotation import (
-    download, signal_dual_ma, run_lrs, run_buy_and_hold,
-    calc_metrics, signal_trades_per_year, download_ken_french_rf,
-    run_dual_ma_analysis,
+    download, download_ken_french_rf, run_dual_ma_analysis,
 )
 
 if __name__ == "__main__":
