@@ -174,6 +174,39 @@ def signal_rsi(price: pd.Series, period: int = 14, threshold: int = 50) -> pd.Se
     return (rsi > threshold).astype(int)
 
 
+def signal_asymmetric_dual_ma(price: pd.Series,
+                               fast_buy: int, slow_buy: int,
+                               fast_sell: int, slow_sell: int) -> pd.Series:
+    """Asymmetric dual MA signal with hysteresis.
+
+    Buy:  enter when fast_buy MA > slow_buy MA
+    Sell: exit  when fast_sell MA < slow_sell MA
+    State machine: only listens to the relevant condition based on current state.
+    """
+    buy_fast_ma = price.rolling(fast_buy).mean()
+    buy_slow_ma = price.rolling(slow_buy).mean()
+    sell_fast_ma = price.rolling(fast_sell).mean()
+    sell_slow_ma = price.rolling(slow_sell).mean()
+
+    buy_cond = (buy_fast_ma > buy_slow_ma).values
+    sell_cond = (sell_fast_ma < sell_slow_ma).values
+
+    n = len(price)
+    sig = np.zeros(n, dtype=int)
+    state = 0
+    for i in range(n):
+        if np.isnan(buy_fast_ma.iloc[i]) or np.isnan(buy_slow_ma.iloc[i]) or \
+           np.isnan(sell_fast_ma.iloc[i]) or np.isnan(sell_slow_ma.iloc[i]):
+            sig[i] = 0
+            continue
+        if state == 0 and buy_cond[i]:
+            state = 1
+        elif state == 1 and sell_cond[i]:
+            state = 0
+        sig[i] = state
+    return pd.Series(sig, index=price.index)
+
+
 # ──────────────────────────────────────────────
 # 3. STRATEGY ENGINE
 # ──────────────────────────────────────────────

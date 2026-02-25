@@ -9,12 +9,13 @@ Leverage Rotation Strategy (LRS) backtesting framework that replicates Michael G
 ## Running Scripts
 
 ```bash
-pip install numpy pandas matplotlib yfinance openpyxl scipy
+pip install numpy pandas matplotlib yfinance openpyxl scipy optuna
 
 python calibrate_tqqq.py       # TQQQ cost calibration (~5 min) — run first
 python leverage_rotation.py   # Full analysis (~25-30 min, includes grid searches + Part 12)
 python diag_nasdaq.py          # NASDAQ data quality diagnostics
 python validate_eulb.py        # Validate against eulb's published results
+python optimize_asymmetric.py  # Asymmetric buy/sell signal optimization (~20 min)
 ```
 
 All scripts are standalone — no build system or test framework. Output PNGs go to `output/`.
@@ -28,7 +29,7 @@ All scripts use a Windows UTF-8 boilerplate at the top (`sys.stdout` wrapping + 
 Organized as a pipeline with these layers:
 
 1. **Data layer** (lines ~34-144): `download()` fetches from yfinance; `_add_shiller_dividends()` synthesizes S&P 500 total returns using Yale Shiller dividend data; `download_ken_french_rf()` gets daily risk-free rates
-2. **Signal layer** (lines ~151-175): `signal_ma()` (price vs SMA), `signal_dual_ma()` (golden cross / fast vs slow SMA), `signal_rsi()`
+2. **Signal layer** (lines ~151-205): `signal_ma()` (price vs SMA), `signal_dual_ma()` (golden cross / fast vs slow SMA), `signal_rsi()`, `signal_asymmetric_dual_ma()` (separate buy/sell MA pairs with hysteresis state machine)
 3. **Strategy engine** (lines ~181-229): `run_lrs()` is the core backtest loop — applies leverage when signal=1, T-Bill returns when signal=0, with configurable signal lag and per-trade commission. `run_buy_and_hold()` for benchmarks
 4. **Metrics** (lines ~235-315): `calc_metrics()` computes CAGR, Sharpe (arithmetic mean, Sharpe 1994), Sortino (TDD per Sortino & van der Meer 1991), MDD, Beta, Alpha. `_max_entry_drawdown()` computes MDD from running max of entry-point equity (not equity curve peak). `_max_recovery_days()` computes longest peak-to-recovery span.
 5. **Visualization** (lines ~318-400): cumulative returns, drawdowns, volatility bars, rolling excess
@@ -82,6 +83,10 @@ Data quality checks: NaN gaps, suspicious jumps, return characteristics, MA sign
 
 Runs identical backtests with eulb's parameters comparing lag=0 vs lag=1, validates relative ranking of MA combos like (3,220), (1,200), (4,80).
 
+### optimize_asymmetric.py
+
+Phase 1 asymmetric signal optimization: uses Optuna (TPE sampler, 2000 trials) to find optimal `(fast_buy, slow_buy, fast_sell, slow_sell)` parameters for `signal_asymmetric_dual_ma()`. Walk-forward validation with 1985-2014 train / 2015-2025 test split. Compares against symmetric baselines and B&H 3x. Outputs trial CSV, cumulative return charts, and parameter stability box plots. Uses Part 12 conditions (TQQQ-calibrated ER=3.5%, Ken French RF, lag=1, comm=0.2%). Full roadmap: `references/signal_optimization_plan.md`.
+
 ## Critical Domain Concept: Look-Ahead Bias
 
 The `signal_lag` parameter is the most important correctness control:
@@ -112,7 +117,8 @@ This differs from `backtesting.py` where `trade_on_close=True` still uses next-d
 
 ```python
 from leverage_rotation import (
-    download, signal_ma, signal_dual_ma, run_lrs, run_buy_and_hold,
+    download, signal_ma, signal_dual_ma, signal_asymmetric_dual_ma,
+    run_lrs, run_buy_and_hold,
     calc_metrics, signal_trades_per_year, download_ken_french_rf,
     run_dual_ma_analysis,
     run_eulb1_comparison, run_eulb5_spotcheck, run_part12_comparison,
