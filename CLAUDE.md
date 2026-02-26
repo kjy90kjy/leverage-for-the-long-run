@@ -18,6 +18,7 @@ python validate_eulb.py        # Validate against eulb's published results
 python optimize_asymmetric.py  # Phase 1: Asymmetric buy/sell optimization (~7 min)
 python optimize_penalized_full.py   # Phase 2 Approach C: penalized asymmetric, full period (~7 min)
 python optimize_all_full.py         # Phase 2 Plans 4/5/6: vol-adaptive, regime, vol+regime (~15 min)
+python optimize_regime_grid.py      # Phase 3: Multi-resolution grid search for regime-switching (~10-15 min)
 ```
 
 All scripts are standalone — no build system or test framework. Output PNGs go to `output/`.
@@ -99,6 +100,17 @@ All Phase 2 scripts use full-period optimization (1987-2025) with penalized obje
   - Plan 5 Regime-Switching (`signal_regime_switching_dual_ma`): 6 params, Sortino 1.088, MDD_Entry -39.2% (best)
   - Plan 6 Vol+Regime (`signal_vol_regime_adaptive_ma`): 7 params, Sortino 1.103 (best), CAGR 35.3%
 - **`optimize_common.py`**: Shared utilities — `apply_warmup()`, `trim_warmup()`, `run_backtest()`, `get_symmetric_baselines()`, `print_comparison_table()`, `plot_cumulative_comparison()`, `stitch_oos_segments()`, `plot_param_stability()`, `download_ndx_and_rf()`. Common constants: `CALIBRATED_ER=0.035, LEVERAGE=3.0, SIGNAL_LAG=1, COMMISSION=0.002`.
+
+### optimize_regime_grid.py (Phase 3)
+
+Multi-resolution grid search for regime-switching 6-parameter plateau exploration. Three phases:
+1. **Coarse grid** (step 10): ~720k combos, all MAs precomputed via cumsum, pure numpy backtest (no pandas overhead per trial)
+2. **Plateau identification**: top 1% → neighbour-average Sortino → diverse plateau centres via greedy selection
+3. **Fine grid** (step 1, ±5): ~15k trials per plateau centre, vol params fixed
+
+Key optimisations: MA dict precomputation, vol-regime boolean array cache, `fast_eval()` with numpy-only Sortino/trades calculation. Full backtest comparison via `run_lrs()` + `calc_metrics()` at end.
+
+Outputs: `regime_grid_coarse_top.csv`, `regime_grid_final.csv`, `regime_grid_plateaus.png`, `regime_grid_comparison.png`.
 
 Legacy train/test split versions (kept for reference): `optimize_penalized.py`, `optimize_walkforward.py`, `optimize_wf_penalized.py`, `optimize_vol_adaptive.py`, `optimize_regime.py`, `optimize_vol_regime.py`, `compare_all_strategies.py`.
 
