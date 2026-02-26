@@ -207,6 +207,148 @@ def signal_asymmetric_dual_ma(price: pd.Series,
     return pd.Series(sig, index=price.index)
 
 
+def signal_vol_adaptive_dual_ma(price: pd.Series,
+                                 base_fast: int, base_slow: int,
+                                 vol_lookback: int = 60,
+                                 vol_scale: float = 1.0) -> pd.Series:
+    """Volatility-adaptive dual MA: MA lengths scale with realized vol.
+
+    When vol is above its expanding median, MAs lengthen (slower reaction);
+    when vol is below median, MAs shorten (faster reaction).
+
+    Uses cumsum trick for O(n) variable-window MA computation.
+    """
+    prices = price.values.astype(float)
+    n = len(prices)
+    daily_ret = np.empty(n)
+    daily_ret[0] = 0.0
+    daily_ret[1:] = prices[1:] / prices[:-1] - 1.0
+
+    # Rolling annualized volatility
+    rolling_vol = pd.Series(daily_ret, index=price.index).rolling(vol_lookback).std() * np.sqrt(252)
+    ref_vol = rolling_vol.expanding().median()
+    vol_ratio = (rolling_vol / ref_vol).clip(0.3, 3.0).fillna(1.0).values
+
+    scale = 1.0 + vol_scale * (vol_ratio - 1.0)
+    fast_eff = np.clip(np.round(base_fast * scale).astype(int), 2, 100)
+    slow_eff = np.clip(np.round(base_slow * scale).astype(int), 30, 500)
+
+    # Cumsum for O(1) per-day MA
+    cumsum = np.concatenate([[0.0], np.cumsum(prices)])
+
+    sig = np.zeros(n, dtype=int)
+    state = 0
+    for i in range(n):
+        f = fast_eff[i]
+        s = slow_eff[i]
+        if i + 1 < s:
+            sig[i] = 0
+            continue
+        fast_ma = (cumsum[i + 1] - cumsum[max(i + 1 - f, 0)]) / min(f, i + 1)
+        slow_ma = (cumsum[i + 1] - cumsum[max(i + 1 - s, 0)]) / min(s, i + 1)
+        if state == 0 and fast_ma > slow_ma:
+            state = 1
+        elif state == 1 and fast_ma <= slow_ma:
+            state = 0
+        sig[i] = state
+    return pd.Series(sig, index=price.index)
+
+
+def signal_regime_switching_dual_ma(price: pd.Series,
+                                     fast_low: int, slow_low: int,
+                                     fast_high: int, slow_high: int,
+                                     vol_lookback: int = 60,
+                                     vol_threshold_pct: float = 50.0) -> pd.Series:
+    """Regime-switching dual MA: different MA pairs for high/low vol regimes.
+
+    Regime detection: expanding percentile of rolling vol (no look-ahead).
+    Low vol: SMA(fast_low) > SMA(slow_low) → 1
+    High vol: SMA(fast_high) > SMA(slow_high) → 1
+    """
+    daily_ret = price.pct_change()
+    rolling_vol = daily_ret.rolling(vol_lookback).std() * np.sqrt(252)
+
+    # Expanding percentile threshold (no look-ahead)
+    vol_pct = rolling_vol.expanding().rank(pct=True) * 100
+    high_vol = (vol_pct >= vol_threshold_pct).values
+
+    # Precompute all 4 MAs
+    ma_fast_low = price.rolling(fast_low).mean().values
+    ma_slow_low = price.rolling(slow_low).mean().values
+    ma_fast_high = price.rolling(fast_high).mean().values
+    ma_slow_high = price.rolling(slow_high).mean().values
+
+    n = len(price)
+    sig = np.zeros(n, dtype=int)
+    state = 0
+    warmup = max(slow_low, slow_high, vol_lookback)
+    for i in range(n):
+        if i < warmup or np.isnan(ma_slow_low[i]) or np.isnan(ma_slow_high[i]):
+            sig[i] = 0
+            continue
+        if high_vol[i]:
+            buy_cond = ma_fast_high[i] > ma_slow_high[i]
+            sell_cond = ma_fast_high[i] <= ma_slow_high[i]
+        else:
+            buy_cond = ma_fast_low[i] > ma_slow_low[i]
+            sell_cond = ma_fast_low[i] <= ma_slow_low[i]
+        if state == 0 and buy_cond:
+            state = 1
+        elif state == 1 and sell_cond:
+            state = 0
+        sig[i] = state
+    return pd.Series(sig, index=price.index)
+
+
+def signal_vol_regime_adaptive_ma(price: pd.Series,
+                                   base_fast_low: int, base_slow_low: int,
+                                   base_fast_high: int, base_slow_high: int,
+                                   vol_lookback: int = 60,
+                                   vol_threshold_pct: float = 50.0,
+                                   vol_scale: float = 1.0) -> pd.Series:
+    """Combined vol-adaptive + regime-switching signal.
+
+    Selects base MA pair by regime, then applies vol-adaptive scaling.
+    """
+    prices = price.values.astype(float)
+    n = len(prices)
+    daily_ret = np.empty(n)
+    daily_ret[0] = 0.0
+    daily_ret[1:] = prices[1:] / prices[:-1] - 1.0
+
+    # Vol computation
+    rolling_vol = pd.Series(daily_ret, index=price.index).rolling(vol_lookback).std() * np.sqrt(252)
+    ref_vol = rolling_vol.expanding().median()
+    vol_ratio = (rolling_vol / ref_vol).clip(0.3, 3.0).fillna(1.0).values
+    vol_pct = rolling_vol.expanding().rank(pct=True) * 100
+    high_vol = (vol_pct >= vol_threshold_pct).values
+
+    scale = 1.0 + vol_scale * (vol_ratio - 1.0)
+
+    cumsum = np.concatenate([[0.0], np.cumsum(prices)])
+
+    sig = np.zeros(n, dtype=int)
+    state = 0
+    for i in range(n):
+        if high_vol[i]:
+            bf, bs = base_fast_high, base_slow_high
+        else:
+            bf, bs = base_fast_low, base_slow_low
+        f = int(np.clip(round(bf * scale[i]), 2, 100))
+        s = int(np.clip(round(bs * scale[i]), 30, 500))
+        if i + 1 < s:
+            sig[i] = 0
+            continue
+        fast_ma = (cumsum[i + 1] - cumsum[max(i + 1 - f, 0)]) / min(f, i + 1)
+        slow_ma = (cumsum[i + 1] - cumsum[max(i + 1 - s, 0)]) / min(s, i + 1)
+        if state == 0 and fast_ma > slow_ma:
+            state = 1
+        elif state == 1 and fast_ma <= slow_ma:
+            state = 0
+        sig[i] = state
+    return pd.Series(sig, index=price.index)
+
+
 # ──────────────────────────────────────────────
 # 3. STRATEGY ENGINE
 # ──────────────────────────────────────────────

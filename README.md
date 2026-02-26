@@ -6,6 +6,12 @@ eulb(에펨코리아)의 TQQQ 이동평균선 매매법 시리즈 결과를 독�
 
 ## 핵심 발견
 
+### Phase 2: 적응형 시그널이 고정 MA를 이김
+- **변동성 적응형(Vol-Adaptive)**: 변동성에 비례해 MA 길이를 자동 조절 → 위기 시 whipsaw 감소
+- **레짐 전환(Regime-Switching)**: 고변동/저변동 레짐별 다른 MA pair → MDD_Entry -39% (매수가 대비 최저 낙폭)
+- **Vol+Regime 결합**: Sortino 1.103, CAGR 35.3% — 대칭 최적 (11,237) 대비 +10% Sortino
+- **비대칭 매수/매도(Phase 1)는 무의미**: 전체 기간 최적화 시 대칭으로 수렴
+
 ### Look-ahead Bias 수정
 - **`signal_lag=0`은 `backtesting.py`의 `trade_on_close=True`와 같지 않다.**
 - `backtesting.py`의 `trade_on_close=True`: 종가에 시그널 → 종가에 매수 → **다음 날부터 수익** (= `signal_lag=1`)
@@ -30,8 +36,13 @@ eulb(에펨코리아)의 TQQQ 이동평균선 매매법 시리즈 결과를 독�
 ├── run_part12_only.py          Part 12 단독 실행 (~15분)
 ├── run_parts7to12.py           Part 7~12 실행 (~45분)
 ├── run_grid_all_indices.py     3지수 캘리브레이션 그리드 서치
+├── optimize_asymmetric.py     Phase 1: 비대칭 시그널 최적화
+├── optimize_penalized_full.py Phase 2: 페널티 비대칭 (전체기간)
+├── optimize_all_full.py       Phase 2: Plans 4/5/6 통합 (전체기간, ~15분)
+├── optimize_common.py         Phase 2: 공통 유틸리티
 ├── output/                     생성된 히트맵·차트·CSV
 ├── references/                 참고 자료
+│   ├── signal_optimization_plan.md  시그널 최적화 로드맵
 │   ├── ssrn-2741701.pdf        Gayed 원논문
 │   ├── backtesting_prototype.py  eulb 원본 코드 (참고용)
 │   └── *.pdf                   eulb 원문 포스트 (4개)
@@ -81,6 +92,11 @@ python run_grid_all_indices.py  # 3지수 캘리브레이션 그리드
 # 4. (선택) 보조 스크립트
 python diag_nasdaq.py           # NASDAQ 데이터 품질 진단
 python validate_eulb.py         # eulb 결과 검증
+
+# 5. Phase 2: 적응형 시그널 최적화
+python optimize_asymmetric.py       # Phase 1 비대칭 (train/test, ~7분)
+python optimize_penalized_full.py   # Approach C 페널티 비대칭 (전체기간, ~7분)
+python optimize_all_full.py         # Plans 4/5/6 Vol-Adaptive/Regime/VolRegime (~15분)
 ```
 
 결과는 `output/` 디렉토리에 PNG 차트와 CSV 파일로 저장됩니다.
@@ -96,12 +112,31 @@ python validate_eulb.py         # eulb 결과 검증
 | `slow_range` | 장기 MA 탐색 범위 | range(50, 351, 3) |
 | `tbill_rate` | T-Bill 금리: 스칼라 또는 `"ken_french"` (일별) | Part별 상이 |
 
+## Phase 2: 적응형 시그널 최적화 결과
+
+전체 기간 (1987-09-23 ~ 2025-12-30, NDX 3x, ER=3.5%, lag=1, comm=0.2%):
+
+| 전략 | CAGR | Sortino | MDD | MDD_Entry | 회복(일) | 매매/년 |
+|------|------|---------|-----|-----------|----------|---------|
+| Vol+Regime (lo49,143\|hi13,204) | **35.3%** | **1.103** | -84.5% | -44.3% | 2456 | 1.6 |
+| Regime (lo48,323\|hi15,229) | 34.9% | 1.088 | -79.9% | **-39.2%** | 2452 | 1.7 |
+| VolAdapt (45,158,lb73,s0.4) | 34.6% | 1.085 | -79.9% | -58.8% | **1891** | 1.2 |
+| Sym best (11,237) | 30.4% | 1.002 | -79.9% | -41.2% | 1891 | 1.7 |
+| Sym (3,161) eulb | 23.7% | 0.861 | -96.9% | -87.2% | 4964 | 4.2 |
+| B&H 3x | 14.2% | 0.758 | -100% | -100% | 6479 | 0.0 |
+
+상세: `references/signal_optimization_plan.md`
+
 ## Importable API
 
 ```python
 from leverage_rotation import (
-    download, signal_ma, signal_dual_ma, run_lrs, run_buy_and_hold,
+    download, signal_ma, signal_dual_ma, signal_asymmetric_dual_ma,
+    signal_vol_adaptive_dual_ma, signal_regime_switching_dual_ma,
+    signal_vol_regime_adaptive_ma,
+    run_lrs, run_buy_and_hold,
     calc_metrics, signal_trades_per_year, download_ken_french_rf,
+    _max_entry_drawdown, _max_recovery_days,
     run_dual_ma_analysis,
     run_eulb1_comparison, run_eulb5_spotcheck, run_part12_comparison,
 )

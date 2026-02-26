@@ -15,7 +15,9 @@ python calibrate_tqqq.py       # TQQQ cost calibration (~5 min) — run first
 python leverage_rotation.py   # Full analysis (~25-30 min, includes grid searches + Part 12)
 python diag_nasdaq.py          # NASDAQ data quality diagnostics
 python validate_eulb.py        # Validate against eulb's published results
-python optimize_asymmetric.py  # Asymmetric buy/sell signal optimization (~20 min)
+python optimize_asymmetric.py  # Phase 1: Asymmetric buy/sell optimization (~7 min)
+python optimize_penalized_full.py   # Phase 2 Approach C: penalized asymmetric, full period (~7 min)
+python optimize_all_full.py         # Phase 2 Plans 4/5/6: vol-adaptive, regime, vol+regime (~15 min)
 ```
 
 All scripts are standalone — no build system or test framework. Output PNGs go to `output/`.
@@ -29,7 +31,7 @@ All scripts use a Windows UTF-8 boilerplate at the top (`sys.stdout` wrapping + 
 Organized as a pipeline with these layers:
 
 1. **Data layer** (lines ~34-144): `download()` fetches from yfinance; `_add_shiller_dividends()` synthesizes S&P 500 total returns using Yale Shiller dividend data; `download_ken_french_rf()` gets daily risk-free rates
-2. **Signal layer** (lines ~151-205): `signal_ma()` (price vs SMA), `signal_dual_ma()` (golden cross / fast vs slow SMA), `signal_rsi()`, `signal_asymmetric_dual_ma()` (separate buy/sell MA pairs with hysteresis state machine)
+2. **Signal layer** (lines ~151-340): `signal_ma()` (price vs SMA), `signal_dual_ma()` (golden cross / fast vs slow SMA), `signal_rsi()`, `signal_asymmetric_dual_ma()` (separate buy/sell MA pairs with hysteresis state machine), `signal_vol_adaptive_dual_ma()` (MA lengths scale with realized vol, cumsum O(n)), `signal_regime_switching_dual_ma()` (different MA pairs for high/low vol regimes, expanding percentile), `signal_vol_regime_adaptive_ma()` (regime-dependent base MA + vol-adaptive scaling)
 3. **Strategy engine** (lines ~181-229): `run_lrs()` is the core backtest loop — applies leverage when signal=1, T-Bill returns when signal=0, with configurable signal lag and per-trade commission. `run_buy_and_hold()` for benchmarks
 4. **Metrics** (lines ~235-315): `calc_metrics()` computes CAGR, Sharpe (arithmetic mean, Sharpe 1994), Sortino (TDD per Sortino & van der Meer 1991), MDD, Beta, Alpha. `_max_entry_drawdown()` computes MDD from running max of entry-point equity (not equity curve peak). `_max_recovery_days()` computes longest peak-to-recovery span.
 5. **Visualization** (lines ~318-400): cumulative returns, drawdowns, volatility bars, rolling excess
@@ -87,6 +89,19 @@ Runs identical backtests with eulb's parameters comparing lag=0 vs lag=1, valida
 
 Phase 1 asymmetric signal optimization: uses Optuna (TPE sampler, 2000 trials) to find optimal `(fast_buy, slow_buy, fast_sell, slow_sell)` parameters for `signal_asymmetric_dual_ma()`. Walk-forward validation with 1985-2014 train / 2015-2025 test split. Compares against symmetric baselines and B&H 3x. Outputs trial CSV, cumulative return charts, and parameter stability box plots. Uses Part 12 conditions (TQQQ-calibrated ER=3.5%, Ken French RF, lag=1, comm=0.2%). Full roadmap: `references/signal_optimization_plan.md`.
 
+### Phase 2 Signal Optimization Scripts
+
+All Phase 2 scripts use full-period optimization (1987-2025) with penalized objective: `Sortino - α × Trades/Year`. Common infrastructure in `optimize_common.py`.
+
+- **`optimize_penalized_full.py`** (Approach C): Asymmetric 4-param + whipsaw penalty on full period. Confirmed asymmetric structure converges to symmetric — no value in buy/sell separation. ~7 min.
+- **`optimize_all_full.py`** (Plans 4/5/6): Runs vol-adaptive, regime-switching, and vol+regime optimizations sequentially. Single data download, final comparison table and chart. ~15 min. Key results:
+  - Plan 4 Vol-Adaptive (`signal_vol_adaptive_dual_ma`): 4 params, Sortino 1.085
+  - Plan 5 Regime-Switching (`signal_regime_switching_dual_ma`): 6 params, Sortino 1.088, MDD_Entry -39.2% (best)
+  - Plan 6 Vol+Regime (`signal_vol_regime_adaptive_ma`): 7 params, Sortino 1.103 (best), CAGR 35.3%
+- **`optimize_common.py`**: Shared utilities — `apply_warmup()`, `trim_warmup()`, `run_backtest()`, `get_symmetric_baselines()`, `print_comparison_table()`, `plot_cumulative_comparison()`, `stitch_oos_segments()`, `plot_param_stability()`, `download_ndx_and_rf()`. Common constants: `CALIBRATED_ER=0.035, LEVERAGE=3.0, SIGNAL_LAG=1, COMMISSION=0.002`.
+
+Legacy train/test split versions (kept for reference): `optimize_penalized.py`, `optimize_walkforward.py`, `optimize_wf_penalized.py`, `optimize_vol_adaptive.py`, `optimize_regime.py`, `optimize_vol_regime.py`, `compare_all_strategies.py`.
+
 ## Critical Domain Concept: Look-Ahead Bias
 
 The `signal_lag` parameter is the most important correctness control:
@@ -118,8 +133,11 @@ This differs from `backtesting.py` where `trade_on_close=True` still uses next-d
 ```python
 from leverage_rotation import (
     download, signal_ma, signal_dual_ma, signal_asymmetric_dual_ma,
+    signal_vol_adaptive_dual_ma, signal_regime_switching_dual_ma,
+    signal_vol_regime_adaptive_ma,
     run_lrs, run_buy_and_hold,
     calc_metrics, signal_trades_per_year, download_ken_french_rf,
+    _max_entry_drawdown, _max_recovery_days,
     run_dual_ma_analysis,
     run_eulb1_comparison, run_eulb5_spotcheck, run_part12_comparison,
 )
