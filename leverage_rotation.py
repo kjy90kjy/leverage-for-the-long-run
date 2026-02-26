@@ -132,6 +132,37 @@ def download_ken_french_rf() -> pd.Series:
         return _RF_CACHE
 
 
+_FRED_CACHE = {}
+
+def download_fred_series(series_id: str) -> pd.Series:
+    """Download daily series from FRED (public CSV, no API key).
+
+    Returns a Series indexed by datetime with float values.
+    Caches results in module-level dict for reuse.
+    """
+    if series_id in _FRED_CACHE:
+        return _FRED_CACHE[series_id]
+
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+    try:
+        resp = urllib.request.urlopen(url, timeout=30)
+        raw = resp.read().decode("utf-8")
+        df = pd.read_csv(io.StringIO(raw), na_values=["."])
+        date_col = df.columns[0]  # "observation_date" or "DATE"
+        df[date_col] = pd.to_datetime(df[date_col])
+        df = df.dropna(subset=[series_id])
+        df = df.set_index(date_col)
+        s = df[series_id].astype(float)
+        s.index.name = None
+        _FRED_CACHE[series_id] = s
+        print(f"  [FRED] {series_id}: {s.index[0].date()} -> {s.index[-1].date()} ({len(s)} obs)")
+        return s
+    except Exception as e:
+        print(f"  [Warning] FRED download failed for {series_id}: {e}")
+        _FRED_CACHE[series_id] = pd.Series(dtype=float)
+        return _FRED_CACHE[series_id]
+
+
 def get_tbill_rate_from_irx() -> float:
     """Try to fetch the latest 13-week T-Bill rate from ^IRX."""
     try:
@@ -346,6 +377,124 @@ def signal_vol_regime_adaptive_ma(price: pd.Series,
         elif state == 1 and fast_ma <= slow_ma:
             state = 0
         sig[i] = state
+    return pd.Series(sig, index=price.index)
+
+
+def signal_macro_regime_dual_ma(
+    price: pd.Series,
+    fast_low: int, slow_low: int,
+    fast_high: int, slow_high: int,
+    vol_lookback: int = 60,
+    vol_threshold_pct: float = 50.0,
+    fed_funds: pd.Series = None,
+    yield_curve: pd.Series = None,
+    credit_spread: pd.Series = None,
+    credit_threshold_pct: float = 70.0,
+) -> pd.Series:
+    """Macro-regime-augmented dual MA signal.
+
+    Extends P5 regime-switching by adding macro layers:
+      Layer 0: Vol regime  -> "is something happening?" (existing)
+      Layer 1: Policy      -> "can they fix it?"        (new)
+      Layer 2: Credit      -> "is the system broken?"   (new)
+
+    Regime classification (3 dimensions -> 4 regimes):
+      Vol low                                 -> Normal   -> (fast_low, slow_low)
+      Vol high + credit OK + policy room      -> Panic    -> (fast_low, slow_low) [stay!]
+      Vol high + credit blowout               -> Systemic -> (fast_high, slow_high) [exit]
+      Vol high + policy hostile               -> Tightening -> (fast_high, slow_high) [exit]
+
+    Policy hostile:
+      - yield_curve < 0 (inverted) = over-tightening
+      - fed_funds 60d MA > 120d MA = rate hiking cycle
+
+    Credit stress:
+      - credit_spread expanding percentile >= credit_threshold_pct
+
+    Falls back to P5 behavior (vol-only) if macro data is missing.
+    """
+    daily_ret = price.pct_change()
+    rolling_vol = daily_ret.rolling(vol_lookback).std() * np.sqrt(252)
+    vol_pct = rolling_vol.expanding().rank(pct=True) * 100
+    high_vol = (vol_pct >= vol_threshold_pct).values
+
+    # Precompute all 4 MAs
+    ma_fast_low = price.rolling(fast_low).mean().values
+    ma_slow_low = price.rolling(slow_low).mean().values
+    ma_fast_high = price.rolling(fast_high).mean().values
+    ma_slow_high = price.rolling(slow_high).mean().values
+
+    n = len(price)
+
+    # ── Macro layers (reindex to price index, ffill for weekends) ──
+    has_macro = (fed_funds is not None and len(fed_funds) > 0 and
+                 yield_curve is not None and len(yield_curve) > 0 and
+                 credit_spread is not None and len(credit_spread) > 0)
+
+    if has_macro:
+        ff = fed_funds.reindex(price.index, method="ffill").values
+        yc = yield_curve.reindex(price.index, method="ffill").values
+        cs = credit_spread.reindex(price.index, method="ffill")
+        cs_pct = cs.expanding().rank(pct=True).values * 100
+
+        # Policy hostile: yield curve inverted OR Fed hiking
+        ff_s = pd.Series(ff, index=price.index)
+        ff_60 = ff_s.rolling(60, min_periods=20).mean().values
+        ff_120 = ff_s.rolling(120, min_periods=40).mean().values
+    else:
+        # Fallback: no macro info → all False (pure vol regime = P5)
+        yc = np.full(n, 1.0)           # positive = not inverted
+        cs_pct = np.zeros(n)            # 0 = no credit stress
+        ff_60 = np.zeros(n)
+        ff_120 = np.ones(n)             # 60 < 120 = not hiking
+
+    # ── Regime classification per day ──
+    # regime: 0=Normal, 1=Panic(stay), 2=Systemic(exit), 3=Tightening(exit)
+    regime = np.zeros(n, dtype=int)
+    warmup = max(slow_low, slow_high, vol_lookback)
+
+    for i in range(n):
+        if not high_vol[i]:
+            regime[i] = 0  # Normal
+            continue
+
+        # Vol is high → check macro layers
+        credit_stressed = cs_pct[i] >= credit_threshold_pct
+        yc_val = yc[i]
+        yc_inverted = (not np.isnan(yc_val)) and yc_val < 0
+        policy_hiking = (not np.isnan(ff_60[i])) and (not np.isnan(ff_120[i])) and ff_60[i] > ff_120[i]
+        policy_hostile = yc_inverted or policy_hiking
+
+        if credit_stressed:
+            regime[i] = 2  # Systemic crisis → exit
+        elif policy_hostile:
+            regime[i] = 3  # Tightening → exit
+        else:
+            regime[i] = 1  # Panic but recoverable → stay
+
+    # ── Signal generation with state machine ──
+    sig = np.zeros(n, dtype=int)
+    state = 0
+
+    for i in range(n):
+        if i < warmup or np.isnan(ma_slow_low[i]) or np.isnan(ma_slow_high[i]):
+            sig[i] = 0
+            continue
+
+        # Select MA pair based on regime
+        if regime[i] in (0, 1):  # Normal or Panic → aggressive (stay in)
+            buy_cond = ma_fast_low[i] > ma_slow_low[i]
+            sell_cond = ma_fast_low[i] <= ma_slow_low[i]
+        else:  # Systemic or Tightening → defensive (get out)
+            buy_cond = ma_fast_high[i] > ma_slow_high[i]
+            sell_cond = ma_fast_high[i] <= ma_slow_high[i]
+
+        if state == 0 and buy_cond:
+            state = 1
+        elif state == 1 and sell_cond:
+            state = 0
+        sig[i] = state
+
     return pd.Series(sig, index=price.index)
 
 
