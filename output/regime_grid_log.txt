@@ -1,0 +1,147 @@
+======================================================================
+  Multi-Resolution Grid Search: Regime-Switching 6-Param
+  NDX 3x, ER=3.5%, lag=1, comm=0.2%, penalty α=0.02
+  Warmup=500d
+======================================================================
+
+[1/6] Downloading data...
+  [Ken French] Downloaded daily RF: 1926-07-01 -> 2025-12-31
+  NDX: 1985-10-01 ~ 2025-12-30
+  Eval: 1987-09-23 ~ 2025-12-30 (9641d, 38.3yr)
+
+[2/6] Precomputing MAs and vol regimes...
+  MAs (1~350): 0.0s
+  Vol regimes (6×5=30): 0.0s
+  JIT warmup...
+  JIT ready
+
+[3/6] Phase 1: Coarse grid search (step=10)...
+  C      5.0% ( 51,337/1,026,750) | 1197s elapsed, ~22750s remaining | 43 trial/s
+remaining | 16,008 trial/s
+     10.0% (102,674/1,026,750) | 6s elapsed, ~57s remaining | 16,183 trial/s
+     15.0% (154,011/1,026,750) | 10s elapsed, ~54s remaining | 16,207 trial/s
+     20.0% (205,348/1,026,750) | 13s elapsed, ~51s remaining | 16,219 trial/s
+     25.0% (256,685/1,026,750) | 16s elapsed, ~47s remaining | 16,216 trial/s
+     30.0% (308,022/1,026,750) | 19s elapsed, ~44s remaining | 16,256 trial/s
+     35.0% (359,359/1,026,750) | 22s elapsed, ~41s remaining | 16,292 trial/s
+     40.0% (410,696/1,026,750) | 25s elapsed, ~38s remaining | 16,315 trial/s
+     45.0% (462,033/1,026,750) | 28s elapsed, ~35s remaining | 16,314 trial/s
+     50.0% (513,370/1,026,750) | 31s elapsed, ~31s remaining | 16,326 trial/s
+     55.0% (564,707/1,026,750) | 35s elapsed, ~28s remaining | 16,318 trial/s
+     60.0% (616,044/1,026,750) | 38s elapsed, ~25s remaining | 16,329 trial/s
+     65.0% (667,381/1,026,750) | 41s elapsed, ~22s remaining | 16,308 trial/s
+     70.0% (718,718/1,026,750) | 44s elapsed, ~19s remaining | 16,311 trial/s
+     75.0% (770,055/1,026,750) | 47s elapsed, ~16s remaining | 16,275 trial/s
+     80.0% (821,392/1,026,750) | 50s elapsed, ~13s remaining | 16,272 trial/s
+     85.0% (872,729/1,026,750) | 54s elapsed, ~9s remaining | 16,248 trial/s
+     90.0% (924,066/1,026,750) | 57s elapsed, ~6s remaining | 16,216 trial/s
+     95.0% (975,403/1,026,750) | 60s elapsed, ~3s remaining | 16,159 trial/s
+    100.0% (1,026,740/1,026,750) | 63s elapsed, ~0s remaining | 16,177 trial/s
+  Coarse grid done: 63.5s (16,177 trial/s)
+  -> regime_grid_coarse_top.csv (10267 rows)
+
+  Coarse best: lo=(42,130), hi=(12,240), vol_lb=40, th=70%
+    Sortino=1.051, Trades/Yr=2.3, Penalised=1.005
+
+  P5 Optuna neighbourhood (480 points):
+    Best near P5: lo=(50,320), hi=(12,230)
+    Penalised=0.936, Rank=593/1026750
+
+[4/6] Identifying plateaus...
+
+  Top 1%: 10267 trials
+  Top penalised range: 1.005 ~ 0.878
+  Identified 5 plateau centres:
+    Plateau 1: lo=(50,120), hi=(50,210), vol_lb=120, th=70%
+      peak penalised=0.971, neighbour avg=0.907, sortino=1.000
+    Plateau 2: lo=(50,130), hi=(22,250), vol_lb=60, th=70%
+      peak penalised=0.922, neighbour avg=0.905, sortino=0.962
+    Plateau 3: lo=(50,120), hi=(32,260), vol_lb=120, th=70%
+      peak penalised=0.936, neighbour avg=0.904, sortino=0.963
+    Plateau 4: lo=(50,130), hi=(32,280), vol_lb=80, th=70%
+      peak penalised=0.898, neighbour avg=0.898, sortino=0.934
+    Plateau 5: lo=(50,130), hi=(50,210), vol_lb=60, th=70%
+      peak penalised=0.907, neighbour avg=0.894, sortino=0.950
+
+[5/6] Phase 2: Fine grid search (step=1, ±5) per plateau...
+
+  Plateau 1: 4356 fine combos (0.3s)
+    Peak:   lo=(45,120), hi=(47,214) | Sortino=1.044, Pen=1.013
+    Robust: lo=(50,119), hi=(47,213) | Sortino=1.014, Pen=0.984
+    Avg penalised=0.958, 95% breadth=2294/4356
+
+  Plateau 2: 7986 fine combos (0.4s)
+    Peak:   lo=(46,125), hi=(24,251) | Sortino=1.026, Pen=0.988
+    Robust: lo=(47,130), hi=(24,250) | Sortino=1.002, Pen=0.963
+    Avg penalised=0.923, 95% breadth=3636/7986
+
+  Plateau 3: 7986 fine combos (0.4s)
+    Peak:   lo=(45,120), hi=(32,256) | Sortino=1.000, Pen=0.971
+    Robust: lo=(47,125), hi=(27,255) | Sortino=0.961, Pen=0.933
+    Avg penalised=0.914, 95% breadth=2916/7986
+
+  Plateau 4: 7986 fine combos (0.4s)
+    Peak:   lo=(45,125), hi=(37,276) | Sortino=0.997, Pen=0.959
+    Robust: lo=(45,128), hi=(34,277) | Sortino=0.969, Pen=0.932
+    Avg penalised=0.909, 95% breadth=4300/7986
+
+  Plateau 5: 4356 fine combos (0.2s)
+    Peak:   lo=(46,129), hi=(46,215) | Sortino=1.020, Pen=0.979
+    Robust: lo=(46,134), hi=(46,213) | Sortino=0.999, Pen=0.960
+    Avg penalised=0.932, 95% breadth=2711/4356
+
+[6/6] Phase 3: Full backtest comparison...
+  Running P5 Optuna (48,323,15,229,49,57.3)...
+  Running P1 peak (45,120,47,214)...
+  Running P1 robust (50,119,47,213)...
+  Running P2 peak (46,125,24,251)...
+  Running P2 robust (47,130,24,250)...
+  Running P3 peak (45,120,32,256)...
+  Running P3 robust (47,125,27,255)...
+  Running P4 peak (45,125,37,276)...
+  Running P4 robust (45,128,34,277)...
+  Running P5 peak (46,129,46,215)...
+  Running P5 robust (46,134,46,213)...
+  Running Sym (3,161) baseline...
+
+========================================================================================================================
+  REGIME GRID SEARCH — Full Backtest (1987-09-23 ~ 2025-12-30)
+========================================================================================================================
+  Strategy                                      CAGR  Sharpe  Sortino      MDD  MDD_Ent   Recov  Trd/Yr     Vol
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  P5 Optuna (48,323,15,229)                    34.9%   0.762    1.088   -79.9%   -39.2%   2452d     1.7   57.1%
+  P1 peak (45,120,47,214)                      35.5%   0.771    1.106   -79.9%   -59.0%   1419d     1.5   56.5%
+  P1 robust (50,119,47,213)                    33.8%   0.749    1.073   -79.9%   -59.0%   1825d     1.4   56.6%
+  P2 peak (46,125,24,251)                      34.3%   0.755    1.077   -81.4%   -49.2%   1903d     1.9   57.0%
+  P2 robust (47,130,24,250)                    33.9%   0.750    1.070   -82.6%   -49.2%   2531d     2.0   57.0%
+  P3 peak (45,120,32,256)                      32.6%   0.733    1.051   -84.5%   -48.2%   1909d     1.4   56.7%
+  P3 robust (47,125,27,255)                    31.1%   0.713    1.017   -82.9%   -45.2%   2524d     1.3   56.5%
+  P4 peak (45,125,37,276)                      32.9%   0.733    1.057   -84.5%   -58.6%   2451d     2.0   57.9%
+  P4 robust (45,128,34,277)                    31.7%   0.717    1.034   -84.5%   -60.3%   2450d     1.9   57.8%
+  P5 peak (46,129,46,215)                      34.5%   0.754    1.084   -79.9%   -57.0%   1452d     2.0   57.7%
+  P5 robust (46,134,46,213)                    33.7%   0.745    1.070   -79.9%   -57.4%   1836d     1.9   57.6%
+  Sym (3,161) baseline                         23.7%   0.613    0.861   -96.9%   -87.2%   4964d     4.2   53.9%
+  B&H 3x                                       14.2%   0.529    0.758  -100.0%  -100.0%   6479d     0.0   79.1%
+========================================================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  Plateau Quality Summary
+────────────────────────────────────────────────────────────────────────────────
+  Plateau     Peak Pen   Avg Pen  95% Breadth  Coarse NAvg  Fine Trials
+  ───────────────────────────────────────────────────────────────────────────
+  P1             1.013     0.958   2294/4356         0.907         4356
+  P2             0.988     0.923   3636/7986         0.905         7986
+  P3             0.971     0.914   2916/7986         0.904         7986
+  P4             0.959     0.909   4300/7986         0.898         7986
+  P5             0.979     0.932   2711/4356         0.894         4356
+
+  -> regime_grid_final.csv
+
+  Generating charts...
+  -> regime_grid_plateaus.png
+  -> regime_grid_comparison.png
+
+======================================================================
+  Done! Total time: 641s (10.7min)
+======================================================================
+================================================================

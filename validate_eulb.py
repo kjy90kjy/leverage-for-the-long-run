@@ -15,7 +15,8 @@ warnings.filterwarnings("ignore")
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, "J:/레버_장투")
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from leverage_rotation import (
     download, signal_dual_ma, run_lrs, run_buy_and_hold,
     calc_metrics, signal_trades_per_year, download_ken_french_rf,
