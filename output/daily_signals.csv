@@ -1,0 +1,2 @@
+timestamp,date,price,signal,signal_type,fast_low_ma,slow_low_ma,fast_high_ma,slow_high_ma,volatility_pct,regime,status,message
+2026-02-27 15:35:01,2026-02-26,25034.369140625,0,관망,24934.087890625,,24976.5576171875,,0,LOW,SUCCESS,Signal generated successfully at 2026-02-26

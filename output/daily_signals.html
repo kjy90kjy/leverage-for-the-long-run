@@ -1,0 +1,84 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Daily Regime-Switching Signal</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
+            .header { background-color: #2c3e50; color: white; padding: 15px; border-radius: 5px; }
+            .latest { background-color: white; padding: 20px; margin: 20px 0; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+            .signal-box { font-size: 24px; font-weight: bold; padding: 10px; border-radius: 5px; margin: 10px 0; }
+            .signal-buy { background-color: #90EE90; color: #155724; }
+            .signal-hold { background-color: #FFB6C6; color: #721c24; }
+            table { width: 100%; border-collapse: collapse; background-color: white; }
+            th { background-color: #34495e; color: white; padding: 10px; text-align: left; }
+            td { padding: 8px; border-bottom: 1px solid #ddd; }
+            tr:hover { background-color: #f9f9f9; }
+            .status-success { color: green; }
+            .status-error { color: red; }
+            .footer { margin-top: 30px; font-size: 12px; color: #666; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>⚡ Daily Regime-Switching Signal</h1>
+            <p>NDX 3x Leverage Rotation Strategy</p>
+        </div>
+
+        <div class="latest">
+            <h2>Latest Signal</h2>
+            <p>Generated: 2026-02-27 15:35:01</p>
+            <p>Date: 2026-02-26 | Price: $25034.37</p>
+    
+            <div class="signal-box signal-hold">
+                🔴 HOLD
+            </div>
+            <p><strong>Signal Type:</strong> 관망</p>
+            <p><strong>Regime:</strong> LOW (Vol: 0%)</p>
+            <table style="width: 50%;">
+                <tr>
+                    <td>Low-Vol MA (fast/slow):</td>
+                    <td>$24934.09 / $nan</td>
+                </tr>
+                <tr>
+                    <td>High-Vol MA (fast/slow):</td>
+                    <td>$24976.56 / $nan</td>
+                </tr>
+            </table>
+        
+        </div>
+
+        <h2>Signal History (Last 20)</h2>
+        <table>
+            <tr>
+                <th>Timestamp</th>
+                <th>Date</th>
+                <th>Price</th>
+                <th>Signal</th>
+                <th>Type</th>
+                <th>Regime</th>
+                <th>Status</th>
+            </tr>
+    
+            <tr>
+                <td>2026-02-27 15:35:01</td>
+                <td>2026-02-26</td>
+                <td>$25034.37</td>
+                <td><strong>🔴 HOLD</strong></td>
+                <td>관망</td>
+                <td>LOW</td>
+                <td class="status-success">SUCCESS</td>
+            </tr>
+        
+        </table>
+
+        <div class="footer">
+            <p>🤖 Automated Regime-Switching Signal Generator</p>
+            <p>Data: Yahoo Finance (^NDX)</p>
+            <p>Strategy: Conservative P1 (12,237,6,229,49,57.3%)</p>
+            <p>Next update: Daily at 4 PM EST (NYSE close)</p>
+        </div>
+    </body>
+    </html>
+    

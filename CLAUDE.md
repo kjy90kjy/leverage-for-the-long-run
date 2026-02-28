@@ -6,25 +6,66 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Leverage Rotation Strategy (LRS) backtesting framework that replicates Michael Gayed's 2016 paper "Leverage for the Long Run" and extends analysis to NASDAQ indices. Also independently validates Korean financial blog "eulb"'s TQQQ moving-average trading strategies.
 
-## Running Scripts
+## Quick Start
 
 ```bash
+# 1. Install dependencies
 pip install numpy pandas matplotlib yfinance openpyxl scipy optuna
 
-python calibrate_tqqq.py       # TQQQ cost calibration (~5 min) — run first
-python leverage_rotation.py   # Full analysis (~25-30 min, includes grid searches + Part 12)
-python diag_nasdaq.py          # NASDAQ data quality diagnostics
-python validate_eulb.py        # Validate against eulb's published results
-python optimize_asymmetric.py  # Phase 1: Asymmetric buy/sell optimization (~7 min)
-python optimize_penalized_full.py   # Phase 2 Approach C: penalized asymmetric, full period (~7 min)
-python optimize_all_full.py         # Phase 2 Plans 4/5/6: vol-adaptive, regime, vol+regime (~15 min)
-python optimize_regime_grid.py      # Phase 3: Multi-resolution grid search for regime-switching (~10-15 min)
-python optimize_regime_grid_v2.py   # Phase 3 v2: Dense grid search (step 5/10/5, ~10.6M combos, ~12 min)
+# 2. TQQQ calibration — MUST RUN FIRST (~5 min)
+python calibrate_tqqq.py
+
+# 3. Full analysis (Parts 1-12, ~25-30 min total)
+python leverage_rotation.py
 ```
 
-All scripts are standalone — no build system or test framework. Output PNGs go to `output/`.
+## All Scripts
+
+**Main analysis:**
+```bash
+python leverage_rotation.py              # Full pipeline (Parts 1-12)
+python calibrate_tqqq.py                 # TQQQ cost calibration (run first)
+python diag_nasdaq.py                    # NASDAQ data quality diagnostics
+python validate_eulb.py                  # Validate against eulb's published results
+```
+
+**Phase 1: Asymmetric Signal (Optuna-based):**
+```bash
+python optimize_asymmetric.py            # Train/test split, 2000 trials (~7 min)
+```
+
+**Phase 2: Adaptive Signals (Full-period optimization):**
+```bash
+python optimize_penalized_full.py        # Approach C: Asymmetric + penalty (~7 min)
+python optimize_all_full.py              # Plans 4/5/6: Vol-Adaptive, Regime, Vol+Regime (~15 min)
+```
+
+**Phase 3: Regime Grid Search (Plateau exploration):**
+```bash
+python optimize_regime_grid.py           # v1: Coarse grid (step 10, ~720k combos, ~10-15 min)
+python optimize_regime_grid_v2.py        # v2: Dense grid (step 5/10/5, ~10.6M combos, ~12 min) — LATEST
+```
+
+**Crisis analysis & testing:**
+```bash
+python analyze_crises.py                 # 9 major NDX crises comparison (5 strategies)
+python test_vote_hysteresis.py           # Vote gate (AND/Hysteresis/OR) comparison
+python test_macro_regime.py              # Macro regime layer testing
+python test_hybrid_entry_exit.py         # Hybrid entry/exit testing
+```
+
+**Convenience runners:**
+```bash
+python run_part12_only.py                # Part 12 only (TQQQ-calibrated NDX grid, ~15 min)
+python run_parts7to12.py                 # Parts 7-12 all grid searches (~45 min)
+python run_grid_all_indices.py           # 3-index calibrated grid search (~3x15 min)
+```
+
+All scripts are standalone — no build system or test framework. Output PNGs and CSVs go to `output/`.
 
 All scripts use a Windows UTF-8 boilerplate at the top (`sys.stdout` wrapping + `warnings.filterwarnings("ignore")`) — preserve this pattern when creating new scripts. Matplotlib uses `Agg` backend (headless, file-only output — no interactive windows).
+
+**Note:** `calibrate_tqqq.py` must run before `leverage_rotation.py` (Part 12 uses calibrated ER=3.5%). Other parts can run independently.
 
 ## Architecture
 
@@ -33,11 +74,15 @@ All scripts use a Windows UTF-8 boilerplate at the top (`sys.stdout` wrapping + 
 Organized as a pipeline with these layers:
 
 1. **Data layer** (lines ~34-144): `download()` fetches from yfinance; `_add_shiller_dividends()` synthesizes S&P 500 total returns using Yale Shiller dividend data; `download_ken_french_rf()` gets daily risk-free rates
-2. **Signal layer** (lines ~151-340): `signal_ma()` (price vs SMA), `signal_dual_ma()` (golden cross / fast vs slow SMA), `signal_rsi()`, `signal_asymmetric_dual_ma()` (separate buy/sell MA pairs with hysteresis state machine), `signal_vol_adaptive_dual_ma()` (MA lengths scale with realized vol, cumsum O(n)), `signal_regime_switching_dual_ma()` (different MA pairs for high/low vol regimes, expanding percentile), `signal_vol_regime_adaptive_ma()` (regime-dependent base MA + vol-adaptive scaling)
-3. **Strategy engine** (lines ~181-229): `run_lrs()` is the core backtest loop — applies leverage when signal=1, T-Bill returns when signal=0, with configurable signal lag and per-trade commission. `run_buy_and_hold()` for benchmarks
-4. **Metrics** (lines ~235-315): `calc_metrics()` computes CAGR, Sharpe (arithmetic mean, Sharpe 1994), Sortino (TDD per Sortino & van der Meer 1991), MDD, Beta, Alpha. `_max_entry_drawdown()` computes MDD from running max of entry-point equity (not equity curve peak). `_max_recovery_days()` computes longest peak-to-recovery span.
-5. **Visualization** (lines ~318-400): cumulative returns, drawdowns, volatility bars, rolling excess
-6. **Dual MA grid search** (lines ~658-1050): `run_dual_ma_grid()` tests all (slow, fast) MA combos × leverage levels; `plot_heatmap()` generates 2D metric heatmaps; `plot_composite_heatmap()` generates 6-panel composite; `run_dual_ma_analysis()` is the high-level orchestrator that runs a full grid search, generates all heatmaps, and saves full results to CSV
+2. **Signal layer** (lines ~151-340):
+   - Basic: `signal_ma()` (price vs SMA), `signal_dual_ma()` (golden cross / fast vs slow SMA), `signal_rsi()`
+   - Optimized: `signal_asymmetric_dual_ma()` (separate buy/sell MA pairs with hysteresis state machine)
+   - Adaptive: `signal_vol_adaptive_dual_ma()` (MA lengths scale with realized vol, cumsum O(n))
+   - Regime-based: `signal_regime_switching_dual_ma()` (different MA pairs for high/low vol regimes), `signal_vol_regime_adaptive_ma()` (regime-dependent base MA + vol-adaptive scaling)
+3. **Strategy engine** (lines ~181-229): `run_lrs()` is the core backtest loop — applies leverage when signal=1, T-Bill returns when signal=0, with configurable signal lag and per-trade commission. `run_buy_and_hold()` for benchmarks.
+4. **Metrics** (lines ~235-315): `calc_metrics()` computes CAGR, Sharpe (arithmetic mean, Sharpe 1994), Sortino (TDD per Sortino & van der Meer 1991), MDD, Beta, Alpha. `_max_entry_drawdown()` computes MDD from running max of entry-point equity (not equity curve peak). `_max_recovery_days()` computes longest peak-to-recovery span. `signal_trades_per_year()` counts annual round-trips.
+5. **Visualization** (lines ~318-400): cumulative returns, drawdowns, volatility bars, rolling excess, crisis annotations
+6. **Analysis orchestrators**: `run_dual_ma_grid()` tests all (slow, fast) MA combos × leverage levels; `run_dual_ma_analysis()` runs full grid search, generates 2D/6-panel heatmaps, saves results to CSV
 
 The main block (lines ~477-1413) runs 12 analysis parts sequentially, each with a config dict specifying ticker, date range, signal parameters, and lag settings.
 
@@ -65,11 +110,17 @@ The main block (lines ~477-1413) runs 12 analysis parts sequentially, each with 
 - **NASDAQ_LONGRUN_CONFIG**: ^IXIC price-only, 1971-present, lag=0
 - **DEFAULT_CONFIG**: ^GSPC, 1990-present, 2% T-Bill, lag=0
 
-### Runner scripts
+### Runner Scripts
 
-- `run_part12_only.py`: Runs Part 12 only (TQQQ-calibrated NDX grid, slow step 1). ~15 min.
-- `run_parts7to12.py`: Runs Parts 7-12 (all grid searches). ~45 min.
-- `run_grid_all_indices.py`: Runs 3x calibrated grid search for all three indices (S&P 500 TR, IXIC, NDX) with `CALIBRATED_ER=0.035`, `lag=1`, `comm=0.2%`, `slow_range step=1`.
+- **`run_part12_only.py`**: Runs Part 12 only (TQQQ-calibrated NDX grid, slow 50-350 step 1, fast 2-50 step 1 = 14,748 combos). ~15 min.
+- **`run_parts7to12.py`**: Runs Parts 7-12 (all dual MA grid searches for S&P 500 TR, IXIC, NDX). ~45 min.
+- **`run_grid_all_indices.py`**: Runs 3x calibrated grid search for all three indices (S&P 500 TR, IXIC, NDX) with `CALIBRATED_ER=0.035`, `lag=1`, `comm=0.2%`, `slow_range step=1`.
+
+### Test Scripts
+
+- **`test_vote_hysteresis.py`**: Compares vote-based signal gates (AND vs Hysteresis vs OR) across crises and full period. Outputs 3 PNGs + CSV.
+- **`test_macro_regime.py`**: Tests macro regime layer (bond/equity momentum) + regime-switching interaction. Outputs crisis comparison + full-period plots.
+- **`test_hybrid_entry_exit.py`**: Tests hybrid entry/exit strategies combining multiple signal types. Outputs parameter sweep heatmaps + recovery analysis.
 
 ### Script dependencies
 
@@ -78,6 +129,19 @@ The main block (lines ~477-1413) runs 12 analysis parts sequentially, each with 
 ### calibrate_tqqq.py
 
 TQQQ cost calibration: compares synthetic 3x QQQ (our model) vs actual TQQQ to determine the optimal `expense_ratio` parameter. Sweeps fixed ER (0.5%-3.5%), tests time-varying financing cost model (Ken French RF-based), and analyzes performance across interest rate regimes (ZIRP, rate hike, COVID, high rate). Outputs recommended ER value and three charts. The calibrated ER is used by Part 12 in `leverage_rotation.py`.
+
+**Output:** `calibrate_tqqq_*.png` charts; writes `CALIBRATED_ER = 0.035` to be used by Part 12.
+
+### analyze_crises.py
+
+Crisis-by-crisis strategy comparison across 9 major NDX crises (1987-2025). Compares 5 strategies:
+1. Symmetric Dual MA (3, 161) — eulb baseline
+2. Vol-Adaptive (`signal_vol_adaptive_dual_ma`)
+3. Regime-Switching (`signal_regime_switching_dual_ma`)
+4. Vol+Regime (`signal_vol_regime_adaptive_ma`)
+5. Buy & Hold 3x (benchmark)
+
+For each crisis: measures signal exit/re-entry timing, MaxDD, period return, recovery days, whipsaw count. Outputs 4 PNGs (crisis detail, period return, MDD, recovery) + 1 CSV (`macro_regime_crisis_detail.csv`). Uses Part 12 conditions (ER=3.5%, lag=1, comm=0.2%).
 
 ### diag_nasdaq.py
 
@@ -102,6 +166,19 @@ All Phase 2 scripts use full-period optimization (1987-2025) with penalized obje
   - Plan 6 Vol+Regime (`signal_vol_regime_adaptive_ma`): 7 params, Sortino 1.103 (best), CAGR 35.3%
 - **`optimize_common.py`**: Shared utilities — `apply_warmup()`, `trim_warmup()`, `run_backtest()`, `get_symmetric_baselines()`, `print_comparison_table()`, `plot_cumulative_comparison()`, `stitch_oos_segments()`, `plot_param_stability()`, `download_ndx_and_rf()`. Common constants: `CALIBRATED_ER=0.035, LEVERAGE=3.0, SIGNAL_LAG=1, COMMISSION=0.002`.
 
+#### Phase 2 Results Summary (Full Period 1987-2025, NDX 3x, ER=3.5%, lag=1, comm=0.2%)
+
+| Strategy | CAGR | Sortino | MDD | MDD_Entry | Recovery (days) | Trades/Year |
+|----------|------|---------|-----|-----------|-----------------|-------------|
+| **Vol+Regime** (7 params) | **35.3%** | **1.103** | -84.5% | -44.3% | 2456 | 1.6 |
+| **Regime-Switching** (6 params) | 34.9% | 1.088 | -79.9% | **-39.2%** | 2452 | 1.7 |
+| **Vol-Adaptive** (4 params) | 34.6% | 1.085 | -79.9% | -58.8% | **1891** | 1.2 |
+| Symmetric Best (11, 237) | 30.4% | 1.002 | -79.9% | -41.2% | 1891 | 1.7 |
+| Symmetric (3, 161) eulb | 23.7% | 0.861 | -96.9% | -87.2% | 4964 | 4.2 |
+| Buy & Hold 3x | 14.2% | 0.758 | -100% | -100% | 6479 | 0.0 |
+
+**Key insights:** Vol+Regime achieves +10% Sortino vs symmetric best while maintaining risk (MDD_Entry). Regime-Switching best for downside protection (MDD_Entry -39.2%). Vol-Adaptive best for drawdown recovery speed.
+
 ### optimize_regime_grid.py (Phase 3)
 
 Multi-resolution grid search for regime-switching 6-parameter plateau exploration. Three phases:
@@ -113,22 +190,52 @@ Key optimisations: MA dict precomputation, vol-regime boolean array cache, `fast
 
 Outputs: `regime_grid_coarse_top.csv`, `regime_grid_final.csv`, `regime_grid_plateaus.png`, `regime_grid_comparison.png`.
 
-### optimize_regime_grid_v2.py (Phase 3 v2 — Dense Grid)
+### optimize_regime_grid_v2.py (Phase 3 v2 — Dense Grid) — LATEST
 
-Denser grid search to capture Optuna sweet spots that v1's coarse step missed (e.g., fast_high=15, vol_threshold=57.3%, vol_lookback=49). Same 3-phase structure as v1 with denser grid:
+Denser grid search to capture Optuna sweet spots that v1's coarse step missed (e.g., fast_high=15, vol_threshold=57.3%, vol_lookback=49). Same 3-phase structure as v1 but with denser exploration:
+
+**Grid Density Comparison:**
 
 | Dimension | v1 | v2 |
 |-----------|----|----|
-| fast MA | step 10, 6 vals | step 5, 10 vals [2,7,12,17,...,47] |
-| slow MA | step 10, 31 vals | step 10, 31 vals (unchanged) |
+| fast_low / fast_high | step 10, 6 vals each | step 5, 10 vals each [2,7,12,17,...,47] |
+| slow_low / slow_high | step 10, 31 vals each | step 10, 31 vals each (unchanged) |
 | vol_lookback | step 20, 6 vals | step 10, 11 vals [20,30,...,120] |
-| vol_threshold | step 10, 5 vals | step 5, 10 vals [30,35,...,75] |
+| vol_threshold_pct | step 10, 5 vals | step 5, 10 vals [30,35,...,75] |
 
-Total: ~10.6M combos (~12 min at ~18k trial/s). Plateau identification step sizes adjusted accordingly.
+Total: ~10.6M combos (~12 min at ~18k trial/s).
+
+**Plateau Identification (Phase 2) — Step Sizes in v2:**
+```python
+step_sizes = {
+    'fast_low': 5,          # (adjusted from v1: 10)
+    'slow_low': 10,
+    'fast_high': 5,         # (adjusted from v1: 10)
+    'slow_high': 10,
+    'vol_lookback': 10,     # (adjusted from v1: 20)
+    'vol_threshold_pct': 5  # (adjusted from v1: 10)
+}
+
+# Grid step for neighbour lookup (Chebyshev distance, O(3^6) per trial)
+fast_step = 5
+slow_step = 10
+vol_lb_step = 10
+vol_th_step = 5
+
+# Minimum normalized L2 distance between selected plateau centres
+min_dist = 3.0
+```
+
+Algorithm: Top 1% by penalised objective → neighbour-average (via grid dict lookup, O(1) per neighbor) → greedy selection of diverse centres (L2 distance ≥ 3.0 in normalized space).
 
 Outputs: `regime_grid_v2_coarse_top.csv`, `regime_grid_v2_final.csv`, `regime_grid_v2_plateaus.png`, `regime_grid_v2_comparison.png`.
 
-Legacy train/test split versions (kept for reference): `optimize_penalized.py`, `optimize_walkforward.py`, `optimize_wf_penalized.py`, `optimize_vol_adaptive.py`, `optimize_regime.py`, `optimize_vol_regime.py`, `compare_all_strategies.py`.
+**Legacy scripts** (kept for reference, use full-period versions instead):
+- **Train/test split approaches:** `optimize_asymmetric.py` (Phase 1), `optimize_penalized.py`, `optimize_walkforward.py`, `optimize_wf_penalized.py`, `optimize_vol_adaptive.py`, `optimize_regime.py`, `optimize_vol_regime.py`
+- **Old runners:** `compare_all_strategies.py`
+- **Phase 3 v1:** `optimize_regime_grid.py` (replaced by denser v2)
+
+**Current production versions:** `optimize_penalized_full.py`, `optimize_all_full.py`, `optimize_regime_grid_v2.py`.
 
 ## Critical Domain Concept: Look-Ahead Bias
 
@@ -159,13 +266,30 @@ This differs from `backtesting.py` where `trade_on_close=True` still uses next-d
 ## Importable API
 
 ```python
+# Core utilities
 from leverage_rotation import (
-    download, signal_ma, signal_dual_ma, signal_asymmetric_dual_ma,
+    download, download_ken_french_rf, signal_trades_per_year,
+)
+
+# Signal functions
+from leverage_rotation import (
+    signal_ma, signal_dual_ma, signal_asymmetric_dual_ma,
     signal_vol_adaptive_dual_ma, signal_regime_switching_dual_ma,
     signal_vol_regime_adaptive_ma,
+)
+
+# Backtesting
+from leverage_rotation import (
     run_lrs, run_buy_and_hold,
-    calc_metrics, signal_trades_per_year, download_ken_french_rf,
-    _max_entry_drawdown, _max_recovery_days,
+)
+
+# Metrics
+from leverage_rotation import (
+    calc_metrics, _max_entry_drawdown, _max_recovery_days,
+)
+
+# Analysis orchestrators
+from leverage_rotation import (
     run_dual_ma_analysis,
     run_eulb1_comparison, run_eulb5_spotcheck, run_part12_comparison,
 )

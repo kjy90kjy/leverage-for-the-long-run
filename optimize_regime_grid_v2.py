@@ -55,6 +55,7 @@ SIGNAL_LAG = 1
 COMMISSION = 0.002
 WARMUP_DAYS = 500
 ALPHA = 0.02  # penalty coefficient
+POSTDOT_START = "2003-01-01"  # Post-dotcom analysis start date
 
 
 # ══════════════════════════════════════════════════════════════
@@ -119,10 +120,10 @@ def fast_regime_signal(ma_fast_low, ma_slow_low, ma_fast_high, ma_slow_high,
     return sig
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=False)
 def fast_eval(sig_raw, lev_ret, tbill_daily, commission, alpha):
-    """Compute penalised Sortino from raw signal (applies lag=1 internally).
-    Returns (sortino, trades_per_year, penalised)."""
+    """Compute metrics from raw signal (applies lag=1 internally).
+    Returns (cagr, sharpe, sortino, mdd, mdd_entry, trades_per_year, penalised)."""
     n = len(sig_raw)
     # Apply lag=1: shift signal forward by 1
     sig = np.empty(n, dtype=np.float64)
@@ -131,28 +132,58 @@ def fast_eval(sig_raw, lev_ret, tbill_daily, commission, alpha):
         sig[i] = float(sig_raw[i - 1])
 
     # Strategy returns
-    sum_strat = 0.0
     sum_excess = 0.0
+    sum_excess_sq = 0.0
     sum_down_sq = 0.0
     total_trades = 0.0
     prev_sig = 0.0
+    equity_val = 1.0
+    running_max = 1.0
+    entry_max = 1.0
+    min_mdd = 0.0
+    min_mdd_entry = 0.0
+
     for i in range(n):
         trade = abs(sig[i] - prev_sig)
         total_trades += trade
         sr = sig[i] * lev_ret[i] + (1.0 - sig[i]) * tbill_daily[i] - trade * commission
         ex = sr - tbill_daily[i]
+
         sum_excess += ex
+        sum_excess_sq += ex * ex
         if ex < 0:
             sum_down_sq += ex * ex
+
+        # Equity and MDD tracking
+        equity_val *= (1.0 + sr)
+        running_max = max(running_max, equity_val)
+        mdd = equity_val / running_max - 1.0
+        min_mdd = min(min_mdd, mdd)
+
+        # Entry-based MDD: update entry_max only when entering (sig==1 and prev_sig==0)
+        if sig[i] == 1.0 and prev_sig == 0.0:
+            entry_max = equity_val
+        elif sig[i] == 1.0:
+            entry_max = max(entry_max, equity_val)
+
+        mdd_entry = equity_val / entry_max - 1.0
+        min_mdd_entry = min(min_mdd_entry, mdd_entry)
+
         prev_sig = sig[i]
+
+    # Metrics
+    cagr = equity_val ** (252.0 / n) - 1.0
 
     dd = np.sqrt(sum_down_sq / n) * np.sqrt(252.0)
     mean_excess_annual = (sum_excess / n) * 252.0
     sortino = mean_excess_annual / dd if dd > 0.0 else 0.0
 
+    std_excess = np.sqrt(sum_excess_sq / n)
+    sharpe = (mean_excess_annual / std_excess) * np.sqrt(252.0) if std_excess > 0.0 else 0.0
+
     trades_yr = total_trades / (n / 252.0)
     penalised = sortino - alpha * trades_yr
-    return sortino, trades_yr, penalised
+    return cagr, sharpe, sortino, min_mdd, min_mdd_entry, trades_yr, penalised
 
 
 # ══════════════════════════════════════════════════════════════
@@ -185,8 +216,9 @@ def run_coarse_grid(prices_arr, daily_ret_arr, price_index,
         ('fast_low', np.int16), ('slow_low', np.int16),
         ('fast_high', np.int16), ('slow_high', np.int16),
         ('vol_lookback', np.int16), ('vol_threshold_pct', np.float32),
-        ('sortino', np.float32), ('trades_yr', np.float32),
-        ('penalised', np.float32),
+        ('cagr', np.float32), ('sharpe', np.float32),
+        ('sortino', np.float32), ('mdd', np.float32), ('mdd_entry', np.float32),
+        ('trades_yr', np.float32), ('penalised', np.float32),
     ])
     results = np.empty(total, dtype=dt)
 
@@ -200,9 +232,9 @@ def run_coarse_grid(prices_arr, daily_ret_arr, price_index,
             mas_dict[fh], mas_dict[sh],
             regimes_dict[(vl, vt)], warmup
         )
-        sortino, tpy, pen = fast_eval(sig, lev_ret, tbill_daily, COMMISSION, ALPHA)
+        cagr, sharpe, sortino, mdd, mdd_entry, tpy, pen = fast_eval(sig, lev_ret, tbill_daily, COMMISSION, ALPHA)
 
-        results[idx] = (fl, sl, fh, sh, vl, vt, sortino, tpy, pen)
+        results[idx] = (fl, sl, fh, sh, vl, vt, cagr, sharpe, sortino, mdd, mdd_entry, tpy, pen)
 
         if (idx + 1) % report_interval == 0:
             elapsed = time.time() - t0
@@ -351,8 +383,9 @@ def run_fine_grid(centre, mas_dict, regimes_dict, lev_ret, tbill_daily):
         ('fast_low', np.int16), ('slow_low', np.int16),
         ('fast_high', np.int16), ('slow_high', np.int16),
         ('vol_lookback', np.int16), ('vol_threshold_pct', np.float32),
-        ('sortino', np.float32), ('trades_yr', np.float32),
-        ('penalised', np.float32),
+        ('cagr', np.float32), ('sharpe', np.float32),
+        ('sortino', np.float32), ('mdd', np.float32), ('mdd_entry', np.float32),
+        ('trades_yr', np.float32), ('penalised', np.float32),
     ])
 
     combos = []
@@ -369,8 +402,8 @@ def run_fine_grid(centre, mas_dict, regimes_dict, lev_ret, tbill_daily):
             mas_dict[fh], mas_dict[sh],
             high_vol, warmup
         )
-        sortino, tpy, pen = fast_eval(sig, lev_ret, tbill_daily, COMMISSION, ALPHA)
-        results[idx] = (fl, sl, fh, sh, vl, vt, sortino, tpy, pen)
+        cagr, sharpe, sortino, mdd, mdd_entry, tpy, pen = fast_eval(sig, lev_ret, tbill_daily, COMMISSION, ALPHA)
+        results[idx] = (fl, sl, fh, sh, vl, vt, cagr, sharpe, sortino, mdd, mdd_entry, tpy, pen)
 
     return results
 
@@ -462,6 +495,83 @@ def print_final_table(label, rows):
 
 
 # ══════════════════════════════════════════════════════════════
+# 8. METRIC HEATMAPS
+# ══════════════════════════════════════════════════════════════
+
+def plot_metric_heatmaps(coarse_results, label, fname):
+    """
+    Plot 12-subplot heatmaps: 6 metrics × 2 regimes (low-vol, high-vol).
+
+    Marginalizes by penalised objective: for each (fast, slow) pair,
+    select the row with max penalised, then extract metric values.
+    """
+    df = pd.DataFrame({
+        'fast_low': coarse_results['fast_low'],
+        'slow_low': coarse_results['slow_low'],
+        'fast_high': coarse_results['fast_high'],
+        'slow_high': coarse_results['slow_high'],
+        'cagr': coarse_results['cagr'],
+        'sharpe': coarse_results['sharpe'],
+        'sortino': coarse_results['sortino'],
+        'mdd': coarse_results['mdd'],
+        'mdd_entry': coarse_results['mdd_entry'],
+        'trades_yr': coarse_results['trades_yr'],
+        'penalised': coarse_results['penalised'],
+    })
+
+    metrics = ['cagr', 'sharpe', 'sortino', 'mdd', 'mdd_entry', 'trades_yr']
+    regimes = ['low', 'high']
+    param_pairs = [('fast_low', 'slow_low'), ('fast_high', 'slow_high')]
+    cmaps = {
+        'cagr': 'RdYlGn', 'sharpe': 'RdYlGn', 'sortino': 'RdYlGn',
+        'mdd': 'RdYlGn_r', 'mdd_entry': 'RdYlGn_r', 'trades_yr': 'Blues'
+    }
+
+    fig, axes = plt.subplots(2, 6, figsize=(20, 10))
+
+    for row_idx, (regime, (fast_param, slow_param)) in enumerate(zip(regimes, param_pairs)):
+        # Marginalize: max penalised for each (fast, slow) pair
+        marginal = df.groupby([fast_param, slow_param]).apply(
+            lambda g: g.loc[g['penalised'].idxmax()]
+        ).reset_index(drop=True)
+
+        for col_idx, metric in enumerate(metrics):
+            ax = axes[row_idx, col_idx]
+
+            # Pivot table
+            pivot_data = marginal.pivot_table(
+                index=fast_param, columns=slow_param, values=metric, aggfunc='first'
+            )
+
+            # Plot heatmap
+            im = ax.imshow(pivot_data.values, aspect='auto', origin='lower',
+                          cmap=cmaps[metric], interpolation='nearest')
+
+            # Axes labels
+            ax.set_xticks(range(len(pivot_data.columns)))
+            ax.set_xticklabels(pivot_data.columns, fontsize=8)
+            ax.set_yticks(range(len(pivot_data.index)))
+            ax.set_yticklabels(pivot_data.index, fontsize=8)
+
+            ax.set_xlabel(slow_param.replace('_', ' ').title(), fontsize=9)
+            ax.set_ylabel(fast_param.replace('_', ' ').title(), fontsize=9)
+
+            # Title
+            regime_label = "Low-Vol Regime" if regime == 'low' else "High-Vol Regime"
+            ax.set_title(f"{metric.upper()} — {regime_label}", fontsize=10)
+
+            # Colorbar
+            cbar = plt.colorbar(im, ax=ax)
+            cbar.ax.tick_params(labelsize=8)
+
+    fig.suptitle(f"Regime-Switching Metrics Heatmaps — {label}", fontsize=14, y=0.995)
+    fig.tight_layout()
+    fig.savefig(OUT_DIR / fname, dpi=150)
+    plt.close(fig)
+    print(f"  -> {fname}")
+
+
+# ══════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════
 
@@ -511,6 +621,31 @@ def main():
     rf_aligned = rf_series.reindex(ndx_price.index, method="ffill").fillna(0)
     tbill_daily = rf_aligned.values.astype(np.float64)
 
+    # ── Post-Dotcom data ──
+    print("\n  Preparing post-dotcom period (2003~)...")
+    ndx_postdot = ndx_price.loc[POSTDOT_START:]
+    prices_postdot = ndx_postdot.values.astype(np.float64)
+    n_pd = len(prices_postdot)
+    daily_ret_postdot = np.empty(n_pd)
+    daily_ret_postdot[0] = 0.0
+    daily_ret_postdot[1:] = prices_postdot[1:] / prices_postdot[:-1] - 1.0
+
+    t0 = time.time()
+    mas_dict_pd = precompute_mas(prices_postdot, max_ma=350)
+    print(f"  Post-dotcom MAs (1~350): {time.time() - t0:.1f}s")
+
+    t0 = time.time()
+    regimes_dict_pd = precompute_vol_regimes(daily_ret_postdot, ndx_postdot.index,
+                                             vol_lookbacks, vol_thresholds)
+    print(f"  Post-dotcom vol regimes: {time.time() - t0:.1f}s")
+
+    daily_cost = CALIBRATED_ER / 252
+    lev_ret_postdot = daily_ret_postdot * LEVERAGE - daily_cost
+    tbill_postdot = rf_series.reindex(ndx_postdot.index, method="ffill").fillna(0).values.astype(np.float64)
+    eval_start_pd = ndx_postdot.index[WARMUP_DAYS]
+    print(f"  Post-dotcom eval: {eval_start_pd.date()} ~ {ndx_postdot.index[-1].date()} "
+          f"({len(ndx_postdot) - WARMUP_DAYS}d, {(len(ndx_postdot) - WARMUP_DAYS)/252:.1f}yr)")
+
     # JIT warmup
     print("  JIT warmup...")
     _dummy_hv = np.zeros(n, dtype=np.bool_)
@@ -518,12 +653,20 @@ def main():
     fast_eval(_dummy_sig, lev_ret, tbill_daily, COMMISSION, ALPHA)
     print("  JIT ready")
 
-    # ── Phase 1: Coarse Grid ──
-    print("\n[3/6] Phase 1: Dense coarse grid search...")
+    # ── Phase 1: Coarse Grid (Full Period) ──
+    print("\n[3/7] Phase 1: Dense coarse grid search (full period)...")
     coarse_results = run_coarse_grid(
         prices_arr, daily_ret_arr, ndx_price.index,
         mas_dict, regimes_dict,
         lev_ret, tbill_daily
+    )
+
+    # ── Phase 1b: Coarse Grid (Post-Dotcom) ──
+    print("\n[4/7] Phase 1b: Dense coarse grid search (post-dotcom)...")
+    coarse_results_pd = run_coarse_grid(
+        prices_postdot, daily_ret_postdot, ndx_postdot.index,
+        mas_dict_pd, regimes_dict_pd,
+        lev_ret_postdot, tbill_postdot
     )
 
     # Save coarse top 1%
@@ -539,20 +682,60 @@ def main():
         'slow_high': top_coarse['slow_high'],
         'vol_lookback': top_coarse['vol_lookback'],
         'vol_threshold_pct': top_coarse['vol_threshold_pct'],
+        'cagr': top_coarse['cagr'],
+        'sharpe': top_coarse['sharpe'],
         'sortino': top_coarse['sortino'],
+        'mdd': top_coarse['mdd'],
+        'mdd_entry': top_coarse['mdd_entry'],
         'trades_yr': top_coarse['trades_yr'],
         'penalised': top_coarse['penalised'],
     })
     df_top.to_csv(OUT_DIR / "regime_grid_v2_coarse_top.csv", index=False)
     print(f"  -> regime_grid_v2_coarse_top.csv ({len(df_top)} rows)")
 
-    # Best coarse
+    # Post-dotcom coarse top
+    top_pct_pd = max(int(len(coarse_results_pd) * 0.01), 100)
+    top_idx_pd = np.argpartition(coarse_results_pd['penalised'], -top_pct_pd)[-top_pct_pd:]
+    top_coarse_pd = coarse_results_pd[top_idx_pd]
+    top_coarse_pd = top_coarse_pd[np.argsort(-top_coarse_pd['penalised'])]
+
+    df_top_pd = pd.DataFrame({
+        'fast_low': top_coarse_pd['fast_low'],
+        'slow_low': top_coarse_pd['slow_low'],
+        'fast_high': top_coarse_pd['fast_high'],
+        'slow_high': top_coarse_pd['slow_high'],
+        'vol_lookback': top_coarse_pd['vol_lookback'],
+        'vol_threshold_pct': top_coarse_pd['vol_threshold_pct'],
+        'cagr': top_coarse_pd['cagr'],
+        'sharpe': top_coarse_pd['sharpe'],
+        'sortino': top_coarse_pd['sortino'],
+        'mdd': top_coarse_pd['mdd'],
+        'mdd_entry': top_coarse_pd['mdd_entry'],
+        'trades_yr': top_coarse_pd['trades_yr'],
+        'penalised': top_coarse_pd['penalised'],
+    })
+    df_top_pd.to_csv(OUT_DIR / "regime_grid_v2_coarse_top_postdot.csv", index=False)
+    print(f"  -> regime_grid_v2_coarse_top_postdot.csv ({len(df_top_pd)} rows)")
+
+    # Best coarse (full period)
     best_c = coarse_results[np.argmax(coarse_results['penalised'])]
-    print(f"\n  Coarse best: lo=({best_c['fast_low']},{best_c['slow_low']}), "
+    print(f"\n  Coarse best (full period): lo=({best_c['fast_low']},{best_c['slow_low']}), "
           f"hi=({best_c['fast_high']},{best_c['slow_high']}), "
           f"vol_lb={best_c['vol_lookback']}, th={best_c['vol_threshold_pct']:.0f}%")
-    print(f"    Sortino={best_c['sortino']:.3f}, Trades/Yr={best_c['trades_yr']:.1f}, "
+    print(f"    CAGR={best_c['cagr']:.1%}, Sharpe={best_c['sharpe']:.3f}, "
+          f"Sortino={best_c['sortino']:.3f}, MDD={best_c['mdd']:.1%}, "
+          f"MDD_Entry={best_c['mdd_entry']:.1%}, Trades/Yr={best_c['trades_yr']:.1f}, "
           f"Penalised={best_c['penalised']:.3f}")
+
+    # Best coarse (post-dotcom)
+    best_c_pd = coarse_results_pd[np.argmax(coarse_results_pd['penalised'])]
+    print(f"\n  Coarse best (post-dotcom): lo=({best_c_pd['fast_low']},{best_c_pd['slow_low']}), "
+          f"hi=({best_c_pd['fast_high']},{best_c_pd['slow_high']}), "
+          f"vol_lb={best_c_pd['vol_lookback']}, th={best_c_pd['vol_threshold_pct']:.0f}%")
+    print(f"    CAGR={best_c_pd['cagr']:.1%}, Sharpe={best_c_pd['sharpe']:.3f}, "
+          f"Sortino={best_c_pd['sortino']:.3f}, MDD={best_c_pd['mdd']:.1%}, "
+          f"MDD_Entry={best_c_pd['mdd_entry']:.1%}, Trades/Yr={best_c_pd['trades_yr']:.1f}, "
+          f"Penalised={best_c_pd['penalised']:.3f}")
 
     # Check P5 Optuna neighbourhood
     p5_fl, p5_sl, p5_fh, p5_sh = 48, 323, 15, 229
@@ -574,11 +757,11 @@ def main():
         print("\n  P5 Optuna params not found in coarse grid neighbourhood")
 
     # ── Phase 1.5: Plateau Identification ──
-    print("\n[4/6] Identifying plateaus...")
+    print("\n[5/8] Identifying plateaus...")
     plateaus = identify_plateaus(coarse_results, n_plateaus=5)
 
     # ── Phase 2: Fine Grid ──
-    print("\n[5/6] Phase 2: Fine grid search (step=1, ±5) per plateau...")
+    print("\n[6/8] Phase 2: Fine grid search (step=1, ±5) per plateau...")
     fine_results_list = []
     plateau_metrics = []
 
@@ -622,7 +805,7 @@ def main():
         print(f"    Avg penalised={avg_pen:.3f}, 95% breadth={breadth_95}/{len(fine_res)}")
 
     # ── Phase 3: Full Backtest Comparison ──
-    print("\n[6/6] Phase 3: Full backtest comparison...")
+    print("\n[7/8] Phase 3: Full backtest comparison...")
     all_results = {}
     all_curves = {}
 
@@ -724,7 +907,14 @@ def main():
     print(f"\n  -> regime_grid_v2_final.csv")
 
     # ── Charts ──
-    print("\n  Generating charts...")
+    print("\n[8/8] Generating charts...")
+
+    # Metric heatmaps (full period + post-dotcom)
+    print("  Generating metric heatmaps...")
+    plot_metric_heatmaps(coarse_results, f"Full Period ({eval_start.date()} ~ {ndx_price.index[-1].date()})",
+                         "regime_grid_v2_heatmap_full.png")
+    plot_metric_heatmaps(coarse_results_pd, f"Post-Dotcom ({eval_start_pd.date()} ~ {ndx_postdot.index[-1].date()})",
+                         "regime_grid_v2_heatmap_postdot.png")
 
     # Plateau parameter distributions
     plot_plateau_params(plateaus, fine_results_list, "regime_grid_v2_plateaus.png")
