@@ -54,7 +54,19 @@ function createWidget(data) {
     return w;
   }
 
-  const { signal, signal_type, price, date, regime, prediction_text } = data;
+  const {
+    signal,
+    signal_type,
+    price,
+    date,
+    regime,
+    current_fast_ma,
+    current_slow_ma,
+    next_signal_price,
+    price_change_needed,
+    price_pct_change,
+    crossover_direction,
+  } = data;
 
   // 배경색
   if (signal === 1) {
@@ -63,53 +75,83 @@ function createWidget(data) {
     w.backgroundColor = new Color("#e74c3c"); // 빨강색 (관망)
   }
 
-  w.setPadding(12, 12, 12, 12);
+  w.setPadding(10, 10, 10, 10);
 
-  // 헤더: 신호
+  // ═══ 현재 신호 ═══
   const signalText = w.addText(signal === 1 ? "🟢 BUY" : "🔴 HOLD");
-  signalText.font = Font.boldSystemFont(32);
+  signalText.font = Font.boldSystemFont(28);
   signalText.textColor = new Color("white");
   signalText.lineLimit = 1;
 
-  // 신호 타입
-  const typeText = w.addText(signal_type || "관망");
-  typeText.font = Font.systemFont(12);
-  typeText.textColor = new Color("rgba(255,255,255,0.8)");
-  typeText.lineLimit = 2;
+  // 신호 타입 + 레짐
+  const regimeText = w.addText(
+    (regime === "LOW" ? "❄️ " : "🔥 ") + (signal_type || "관망")
+  );
+  regimeText.font = Font.systemFont(11);
+  regimeText.textColor = new Color("rgba(255,255,255,0.9)");
+  regimeText.lineLimit = 1;
 
-  w.addSpacer(8);
+  w.addSpacer(6);
 
-  // 가격 정보
+  // ═══ 가격 정보 ═══
   const priceText = w.addText(`$${Math.round(price)}`);
-  priceText.font = Font.boldSystemFont(20);
+  priceText.font = Font.boldSystemFont(18);
   priceText.textColor = new Color("white");
 
   const dateText = w.addText(date);
-  dateText.font = Font.systemFont(11);
+  dateText.font = Font.systemFont(10);
   dateText.textColor = new Color("rgba(255,255,255,0.7)");
+
+  w.addSpacer(6);
+
+  // ═══ 현재 MA ═══
+  const maContainer = w.addStack();
+  maContainer.layoutHorizontally();
+
+  const fastLabel = maContainer.addText(
+    `F: $${Math.round(current_fast_ma)}`
+  );
+  fastLabel.font = Font.systemFont(9);
+  fastLabel.textColor = new Color("rgba(255,255,255,0.8)");
+
+  maContainer.addSpacer();
+
+  const slowLabel = maContainer.addText(
+    `S: $${Math.round(current_slow_ma)}`
+  );
+  slowLabel.font = Font.systemFont(9);
+  slowLabel.textColor = new Color("rgba(255,255,255,0.8)");
 
   w.addSpacer(8);
 
-  // 레짐
-  const regimeText = w.addText(
-    regime === "LOW" ? "❄️ Low Vol" : "🔥 High Vol"
+  // ═══ 다음 신호 조건 ═══
+  const nextSigText = w.addText("📍 NEXT SIGNAL:");
+  nextSigText.font = Font.boldSystemFont(10);
+  nextSigText.textColor = new Color("rgba(255,255,255,0.95)");
+
+  const triggerText = w.addText(
+    `$${Math.round(next_signal_price)} ${
+      price_change_needed > 0
+        ? `(+${price_pct_change.toFixed(2)}%)`
+        : `(${price_pct_change.toFixed(2)}%)`
+    }`
   );
-  regimeText.font = Font.systemFont(12);
-  regimeText.textColor = new Color("rgba(255,255,255,0.9)");
+  triggerText.font = Font.boldSystemFont(12);
+  triggerText.textColor = new Color("rgba(255,255,255,0.95)");
 
-  // 예측 정보 (있으면 표시)
-  if (prediction_text) {
-    w.addSpacer(6);
-    const predText = w.addText("📈 " + prediction_text);
-    predText.font = Font.systemFont(10);
-    predText.textColor = new Color("rgba(255,255,255,0.8)");
-    predText.lineLimit = 3;
-  }
+  const crossoverSmall = w.addText(crossover_direction);
+  crossoverSmall.font = Font.systemFont(8);
+  crossoverSmall.textColor = new Color("rgba(255,255,255,0.7)");
+  crossoverSmall.lineLimit = 1;
 
-  // 시간 정보
-  w.addSpacer(6);
+  w.addSpacer(4);
+
+  // ═══ 시간 정보 ═══
   const timeText = w.addText(
-    `Updated: ${new Date().toLocaleTimeString("ko-KR")}`
+    `${new Date().toLocaleTimeString("ko-KR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    })}`
   );
   timeText.font = Font.systemFont(8);
   timeText.textColor = new Color("rgba(255,255,255,0.6)");
