@@ -237,12 +237,51 @@ Outputs: `regime_grid_v2_coarse_top.csv`, `regime_grid_v2_final.csv`, `regime_gr
 
 **Current production versions:** `optimize_penalized_full.py`, `optimize_all_full.py`, `optimize_regime_grid_v2.py`.
 
-## Critical Domain Concept: Look-Ahead Bias
+## Critical Domain Concept: Look-Ahead Bias & Signal Lag Timing
 
-The `signal_lag` parameter is the most important correctness control:
-- **`signal_lag=0`**: Signal computed at close → applied to same-day return → **look-ahead bias** (theoretical only)
-- **`signal_lag=1`**: Signal computed at close → applied to next-day return → **realistic execution**
-- **`fast=1` MA is excluded** from grid searches because price vs price creates extreme look-ahead bias
+The `signal_lag` parameter is the most important correctness control. However, the optimal lag depends on **market microstructure** (liquidity, trading hours, automation capability):
+
+### Signal Lag Definition
+- **`signal_lag=0`**: Signal computed at day-T close → applied to day-T return → **same-day execution**
+  - Theoretical: Possible if immediate execution after close
+  - Practical: Only feasible with automated systems + after-hours liquidity
+
+- **`signal_lag=1`**: Signal computed at day-T close → applied to day-T+1 return → **next-day execution**
+  - Conservative assumption: Next trading session (day T+1 open/close)
+  - Always feasible: Guaranteed liquidity at market open
+
+### Market-Specific Considerations
+
+**Korean Markets (KRX)**:
+- Close: 15:00 KST
+- After-hours: No trading (liquidity = 0)
+- ∴ **lag=1 is mandatory** (next day 09:00+ trading only)
+- lag=0 = impossible
+
+**US Markets (NASDAQ, SPY/TQQQ)**:
+- Close: 16:00 EST
+- After-hours: 16:00-20:00 trading available (lower liquidity, wider spreads)
+- Option A: **lag=0** with after-hours execution (possible but slippage-prone)
+- Option B: **lag=1** with next-day open execution (safer, standard)
+- Recommendation: **lag=1 for backtesting conservatism**, but lag=0 feasible for automated systems with after-hours capability
+
+**Crypto/Futures Markets**:
+- 24/7 trading available
+- lag=0 and lag=1 both practical
+- Slippage considerations apply
+
+### Code Implementation Note
+- `signal.shift(signal_lag)` properly implements both conventions in `run_lrs()`
+- However, backtesting uses historical close prices only (no slippage, no spread)
+- Real trading will differ: after-hours prices ≠ next open prices
+
+### Bottom Line for This Project
+- **Part 12 (NDX, lag=1)**: Conservative & recommended baseline
+- **Part 7-9 (lag=0)**: Theoretical, requires inflated returns correction (1.46-1.66x factors)
+- **For production trading**: Choose lag based on your execution capability:
+  - If automated + after-hours access: lag=0 is possible
+  - If manual/next-day only: lag=1 is required
+  - For safety: Always use lag=1 as fallback
 
 This differs from `backtesting.py` where `trade_on_close=True` still uses next-day returns internally.
 
