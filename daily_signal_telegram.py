@@ -362,7 +362,7 @@ def generate_signal():
         print(f"[{result['timestamp']}] Downloading NDX data...")
         ndx = download("^NDX",
                       start=(datetime.now() - timedelta(days=LOOKBACK_DAYS)).strftime('%Y-%m-%d'),
-                      end=datetime.now().strftime('%Y-%m-%d'))
+                      end=(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d'))
 
         if len(ndx) == 0:
             result['message'] = 'No data downloaded'
