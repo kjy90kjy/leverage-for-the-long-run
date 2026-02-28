@@ -77,6 +77,80 @@ def calculate_virtual_ma(prices, window, test_price):
     return np.mean(virtual_prices[-window:])
 
 
+def find_crossover_price(prices, fast_window, slow_window, current_signal, direction='up'):
+    """
+    정확한 크로스오버 지점을 찾기 (두 MA 모두 가상 계산).
+
+    Binary search로 fast_ma = slow_ma인 가격을 찾음.
+    과거 279일이 모두 변하면서 두 MA가 만나는 정확한 지점.
+
+    Args:
+        prices: 과거 가격 배열
+        fast_window: 빠른 MA 윈도우
+        slow_window: 느린 MA 윈도우
+        current_signal: 현재 신호 (0=HOLD, 1=BUY)
+        direction: 'up' (상승) 또는 'down' (하락)
+
+    Returns:
+        crossover_price: 크로스오버가 발생하는 가격
+        fast_ma_at_cross: 그 가격에서의 fast MA
+        slow_ma_at_cross: 그 가격에서의 slow MA
+    """
+    current_price = prices[-1]
+
+    if direction == 'up':
+        # 상승: current_signal=0 (HOLD) → 1 (BUY)
+        # fast_ma > slow_ma 되는 지점 찾기
+        low_price = current_price
+        high_price = current_price * 1.10  # 10% 범위 탐색
+    else:
+        # 하락: current_signal=1 (BUY) → 0 (HOLD)
+        # fast_ma <= slow_ma 되는 지점 찾기
+        low_price = current_price * 0.90  # 10% 범위 탐색
+        high_price = current_price
+
+    # Binary search for crossover price
+    tolerance = 0.01  # $0.01 정확도
+    max_iterations = 100
+
+    for _ in range(max_iterations):
+        mid_price = (low_price + high_price) / 2
+
+        fast_ma = calculate_virtual_ma(prices, fast_window, mid_price)
+        slow_ma = calculate_virtual_ma(prices, slow_window, mid_price)
+
+        if np.isnan(fast_ma) or np.isnan(slow_ma):
+            return mid_price, fast_ma, slow_ma
+
+        diff = fast_ma - slow_ma
+
+        if direction == 'up':
+            # fast > slow 찾기
+            if diff > 0:
+                # 이미 위쪽, 더 낮은 가격 탐색
+                high_price = mid_price
+            else:
+                # 아래쪽, 더 높은 가격 탐색
+                low_price = mid_price
+        else:
+            # fast <= slow 찾기
+            if diff <= 0:
+                # 이미 아래쪽, 더 높은 가격 탐색
+                low_price = mid_price
+            else:
+                # 위쪽, 더 낮은 가격 탐색
+                high_price = mid_price
+
+        if high_price - low_price < tolerance:
+            break
+
+    crossover_price = (low_price + high_price) / 2
+    fast_ma = calculate_virtual_ma(prices, fast_window, crossover_price)
+    slow_ma = calculate_virtual_ma(prices, slow_window, crossover_price)
+
+    return crossover_price, fast_ma, slow_ma
+
+
 def calculate_prediction(ndx_price, result):
     """
     다음 신호까지 필요한 가격 계산 (상세 정보 포함).
@@ -137,20 +211,16 @@ def calculate_prediction(ndx_price, result):
             # 다음: 매수 (fast_low > slow_low)
             prediction['crossover_direction'] = f"fast_low ({fast_param}일) > slow_low ({slow_param}일)"
 
-            # 목표 가격 탐색: binary search로 정확한 크로스오버 지점 찾기
-            target_price = slow_low_ma
-            virtual_fast = calculate_virtual_ma(prices, fast_param, target_price)
-
-            # slow_low는 거의 변화 없으므로 약간의 마진 추가
-            while virtual_fast <= slow_low_ma and target_price < current_price * 1.05:
-                target_price += 1
-                virtual_fast = calculate_virtual_ma(prices, fast_param, target_price)
+            # 정확한 크로스오버 지점 찾기 (두 MA 모두 변함)
+            target_price, virtual_fast, virtual_slow = find_crossover_price(
+                prices, fast_param, slow_param, current_signal, direction='up'
+            )
 
             prediction['next_signal_price'] = target_price
             prediction['price_change_needed'] = target_price - current_price
             prediction['price_pct_change'] = (target_price - current_price) / current_price * 100
             prediction['virtual_fast_ma'] = virtual_fast
-            prediction['virtual_slow_ma'] = calculate_virtual_ma(prices, slow_param, target_price)
+            prediction['virtual_slow_ma'] = virtual_slow
 
             prediction['detailed_text'] = (
                 f"📊 현재 상태:\n"
@@ -173,19 +243,16 @@ def calculate_prediction(ndx_price, result):
             # 다음: 관망 (fast_low ≤ slow_low)
             prediction['crossover_direction'] = f"fast_low ({fast_param}일) ≤ slow_low ({slow_param}일)"
 
-            target_price = slow_low_ma
-            virtual_fast = calculate_virtual_ma(prices, fast_param, target_price)
-
-            # 하락 시나리오
-            while virtual_fast > slow_low_ma and target_price > current_price * 0.95:
-                target_price -= 1
-                virtual_fast = calculate_virtual_ma(prices, fast_param, target_price)
+            # 정확한 크로스오버 지점 찾기 (두 MA 모두 변함)
+            target_price, virtual_fast, virtual_slow = find_crossover_price(
+                prices, fast_param, slow_param, current_signal, direction='down'
+            )
 
             prediction['next_signal_price'] = target_price
             prediction['price_change_needed'] = target_price - current_price
             prediction['price_pct_change'] = (target_price - current_price) / current_price * 100
             prediction['virtual_fast_ma'] = virtual_fast
-            prediction['virtual_slow_ma'] = calculate_virtual_ma(prices, slow_param, target_price)
+            prediction['virtual_slow_ma'] = virtual_slow
 
             prediction['detailed_text'] = (
                 f"📊 현재 상태:\n"
@@ -215,18 +282,16 @@ def calculate_prediction(ndx_price, result):
             # 다음: 매수 (fast_high > slow_high)
             prediction['crossover_direction'] = f"fast_high ({fast_param}일) > slow_high ({slow_param}일)"
 
-            target_price = slow_high_ma
-            virtual_fast = calculate_virtual_ma(prices, fast_param, target_price)
-
-            while virtual_fast <= slow_high_ma and target_price < current_price * 1.05:
-                target_price += 1
-                virtual_fast = calculate_virtual_ma(prices, fast_param, target_price)
+            # 정확한 크로스오버 지점 찾기 (두 MA 모두 변함)
+            target_price, virtual_fast, virtual_slow = find_crossover_price(
+                prices, fast_param, slow_param, current_signal, direction='up'
+            )
 
             prediction['next_signal_price'] = target_price
             prediction['price_change_needed'] = target_price - current_price
             prediction['price_pct_change'] = (target_price - current_price) / current_price * 100
             prediction['virtual_fast_ma'] = virtual_fast
-            prediction['virtual_slow_ma'] = calculate_virtual_ma(prices, slow_param, target_price)
+            prediction['virtual_slow_ma'] = virtual_slow
 
             prediction['detailed_text'] = (
                 f"📊 현재 상태:\n"
@@ -249,18 +314,16 @@ def calculate_prediction(ndx_price, result):
             # 다음: 관망 (fast_high ≤ slow_high)
             prediction['crossover_direction'] = f"fast_high ({fast_param}일) ≤ slow_high ({slow_param}일)"
 
-            target_price = slow_high_ma
-            virtual_fast = calculate_virtual_ma(prices, fast_param, target_price)
-
-            while virtual_fast > slow_high_ma and target_price > current_price * 0.95:
-                target_price -= 1
-                virtual_fast = calculate_virtual_ma(prices, fast_param, target_price)
+            # 정확한 크로스오버 지점 찾기 (두 MA 모두 변함)
+            target_price, virtual_fast, virtual_slow = find_crossover_price(
+                prices, fast_param, slow_param, current_signal, direction='down'
+            )
 
             prediction['next_signal_price'] = target_price
             prediction['price_change_needed'] = target_price - current_price
             prediction['price_pct_change'] = (target_price - current_price) / current_price * 100
             prediction['virtual_fast_ma'] = virtual_fast
-            prediction['virtual_slow_ma'] = calculate_virtual_ma(prices, slow_param, target_price)
+            prediction['virtual_slow_ma'] = virtual_slow
 
             prediction['detailed_text'] = (
                 f"📊 현재 상태:\n"
