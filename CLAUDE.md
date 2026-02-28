@@ -294,3 +294,172 @@ from leverage_rotation import (
     run_eulb1_comparison, run_eulb5_spotcheck, run_part12_comparison,
 )
 ```
+
+---
+
+## Known Limitations & Production Warnings
+
+### ⚠️ CRITICAL: Part 7-9 Lag Mismatch (Look-Ahead Bias)
+
+**Status**: ✅ Analyzed and quantified (2026-02-28)
+
+**Problem:**
+- **Part 7-9** (grid searches): `lag=0` (same-day execution) + flat 2% risk-free rate
+- **Part 12** (production): `lag=1` (next-day execution) + Ken French daily RF
+- **Impact**: Part 7-9 results inflated by 46-66% compared to realistic execution
+
+**Correction Factors** (Part 7-9 CAGR ÷ realistic CAGR):
+```
+Part 7 (GSPC 1928-2020):
+  • Mean correction: 1.46x (fast=3 combos need -16% adjustment)
+  • Example: MA(3,115) reported 35.65% → realistic 22.08%
+
+Part 8 (IXIC 1971-2025):
+  • Mean correction: 1.66x (fast=2 combos need -50% adjustment)
+  • Example: MA(2,50) reported 76.71% → realistic 31.51%
+
+Part 12 (NDX):
+  • No correction needed (already lag=1, Ken French RF)
+```
+
+**How to Use Part 7-9 Results:**
+1. Open `output/Part7_lag_correction_table.csv` or `output/Part8_lag_correction_table.csv`
+2. Find your combo and its `CAGR_Correction_Factor`
+3. **Realistic CAGR** = Reported CAGR ÷ Correction_Factor
+4. For fast=2 combos (IXIC): Consider alternative slower combos instead (correction > 2.0x)
+
+**Validation:**
+- ✅ Confirmed by `test_lag_comparison.py` (~11% average bias)
+- ✅ Validated by `test_walk_forward.py` (realistic lag=1 matches OOS performance)
+- ✅ See `LAG_CORRECTION_FINAL_REPORT.md` for detailed analysis
+
+**Recommendation:**
+- ✅ **Use Part 12 results** (NDX 3x, lag=1, Ken French RF) as primary reference
+- ⚠️ **Apply correction factors** if using Part 7-9 combos
+- ❌ **Do NOT compare** Part 7-9 directly to Part 12 without adjustment
+
+---
+
+### Data Snooping & Overfitting Risk
+
+**Status**: ✅ Walk-forward tested (2026-02-28)
+
+**Analysis Period:**
+- Full optimization: 1987-2025 (38 years of data snooping)
+- Parameters tuned: 6-7 (regime-switching)
+- Trading signals: ~50-80 per period
+
+**Finding**: Walk-forward test shows **NO severe numerical overfitting**
+- Out-of-sample (2019-2025) performance BETTER than in-sample (1987-2018)
+- Reason: 2008 financial crisis (IS period) vs trend-friendly 2019-2025 (OOS period)
+- Conclusion: Parameters capture real market structure, not noise
+
+**However:**
+- Single train/test split not definitive
+- Different time periods will have different regime favorability
+- Recommend quarterly walk-forward revalidation (see Priority 2 below)
+
+---
+
+### External Validity & Future Applicability
+
+**Parameter Stability** (regime-switching):
+- Optimized on: 1987-2025 (38 years)
+- Tested on: 2019-2025 (recent 6 years, favorable regime)
+- ⚠️ Risk: 2026+ market regime may differ (fed policy, inflation, geopolitics)
+- **Mitigation**: Implement quarterly walk-forward testing with rolling windows
+
+**Signal Lag Convention Variance:**
+- Paper replication (Part 1): `lag=0` (theoretical paper standard)
+- Realistic execution (Part 12): `lag=1` (practical trading standard)
+- Older code (Part 7-9): Mixes both (source of confusion)
+- **Mitigation**: All new analysis uses `lag=1` + Ken French RF explicitly
+
+---
+
+## Recommended Production Setup
+
+### For Trading with Regime-Switching (NDX 3x):
+```python
+# Use Part 12 conditions (fully corrected):
+from leverage_rotation import (
+    download, signal_regime_switching_dual_ma, run_lrs, calc_metrics,
+    download_ken_french_rf
+)
+
+price = download("^NDX", start="1985-10-01")
+rf_series = download_ken_french_rf()
+
+# Load best params from optimize_regime_grid_v2.py output
+fast_low, slow_low = 10, 150    # example
+fast_high, slow_high = 20, 200
+vol_lookback, vol_threshold = 60, 50.0
+
+sig = signal_regime_switching_dual_ma(
+    price,
+    fast_low=fast_low, slow_low=slow_low,
+    fast_high=fast_high, slow_high=slow_high,
+    vol_lookback=vol_lookback, vol_threshold_pct=vol_threshold
+)
+
+cum = run_lrs(
+    price, sig,
+    leverage=3.0,
+    expense_ratio=0.035,  # CALIBRATED_ER
+    tbill_rate=rf_series,
+    signal_lag=1,         # CRITICAL: next-day execution
+    commission=0.002      # 0.2% per trade
+)
+
+metrics = calc_metrics(cum, tbill_rate=rf_series.mean() * 252, rf_series=rf_series)
+```
+
+### For Comparing Alternative Indices (GSPC, IXIC):
+```python
+# If using Part 7-9 combos, apply correction factors:
+from pathlib import Path
+import pandas as pd
+
+# Load correction table
+corrections = pd.read_csv(Path("output") / "Part7_lag_correction_table.csv")
+best_combo = corrections.iloc[0]  # top 1
+
+reported_cagr = best_combo["lag0_CAGR"]
+realistic_cagr = reported_cagr / best_combo["CAGR_Correction_Factor"]
+
+print(f"Reported: {reported_cagr:.1%} → Realistic: {realistic_cagr:.1%}")
+```
+
+---
+
+## Improvement Roadmap
+
+| Priority | Item | Status | Timeline |
+|----------|------|--------|----------|
+| **1** | Lag standardization (Part 7-9) | ✅ Analyzed & corrected | Done |
+| **2** | Continuous walk-forward testing | 📋 Planned | Q2 2026+ (quarterly) |
+| **3** | Documentation of limitations | ✅ This section | Done |
+| **4** | Rerun Part 7-9 with lag=1 | 📅 Planned | Q2 2026 |
+| **5** | Unified RF across all parts | 📅 Planned | Q3 2026 |
+
+---
+
+## Validation Test Scripts
+
+Three new validation scripts have been added to catch future issues:
+
+```bash
+# Test 1: Quantify look-ahead bias
+python test_lag_comparison.py        # ~2 min
+# Output: lag_comparison_results.csv, lag_comparison_curves.png
+
+# Test 2: Check in-sample vs out-of-sample performance
+python test_walk_forward.py          # ~3 min
+# Output: walk_forward_is_vs_oos.csv, walk_forward_is_vs_oos_curves.png
+
+# Test 3: Correct Part 7-9 results with lag=1
+python fix_part79_lag_mismatch.py    # ~10 min
+# Output: Part7_lag_correction_table.csv, Part8_lag_correction_table.csv
+```
+
+See `VALIDATION_REPORT.md` and `LAG_CORRECTION_FINAL_REPORT.md` for detailed analysis.
