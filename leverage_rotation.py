@@ -292,15 +292,19 @@ def signal_regime_switching_dual_ma(price: pd.Series,
                                      vol_threshold_pct: float = 50.0) -> pd.Series:
     """Regime-switching dual MA: different MA pairs for high/low vol regimes.
 
-    Regime detection: expanding percentile of rolling vol (no look-ahead).
+    Regime detection: rolling percentile (252-day window, 1 year) of rolling vol.
+    This prevents distant extremes (e.g., 2008 crisis) from permanently distorting
+    current signals. For early warmup period (first year), uses min_periods fallback.
+
     Low vol: SMA(fast_low) > SMA(slow_low) → 1
     High vol: SMA(fast_high) > SMA(slow_high) → 1
     """
     daily_ret = price.pct_change()
     rolling_vol = daily_ret.rolling(vol_lookback).std() * np.sqrt(252)
 
-    # Expanding percentile threshold (no look-ahead)
-    vol_pct = rolling_vol.expanding().rank(pct=True) * 100
+    # Rolling percentile (252-day window = 1 year) to avoid historical extremes
+    # min_periods=1 allows calculation even during initial warmup (first year)
+    vol_pct = rolling_vol.rolling(252, min_periods=1).rank(pct=True) * 100
     high_vol = (vol_pct >= vol_threshold_pct).values
 
     # Precompute all 4 MAs
@@ -340,6 +344,8 @@ def signal_vol_regime_adaptive_ma(price: pd.Series,
     """Combined vol-adaptive + regime-switching signal.
 
     Selects base MA pair by regime, then applies vol-adaptive scaling.
+    Uses rolling percentile (252-day window) to avoid historical extreme values
+    permanently distorting current regime signals.
     """
     prices = price.values.astype(float)
     n = len(prices)
@@ -349,9 +355,9 @@ def signal_vol_regime_adaptive_ma(price: pd.Series,
 
     # Vol computation
     rolling_vol = pd.Series(daily_ret, index=price.index).rolling(vol_lookback).std() * np.sqrt(252)
-    ref_vol = rolling_vol.expanding().median()
+    ref_vol = rolling_vol.rolling(252, min_periods=1).median()  # 1-year rolling median
     vol_ratio = (rolling_vol / ref_vol).clip(0.3, 3.0).fillna(1.0).values
-    vol_pct = rolling_vol.expanding().rank(pct=True) * 100
+    vol_pct = rolling_vol.rolling(252, min_periods=1).rank(pct=True) * 100  # Fixed: was expanding()
     high_vol = (vol_pct >= vol_threshold_pct).values
 
     scale = 1.0 + vol_scale * (vol_ratio - 1.0)
@@ -415,7 +421,7 @@ def signal_macro_regime_dual_ma(
     """
     daily_ret = price.pct_change()
     rolling_vol = daily_ret.rolling(vol_lookback).std() * np.sqrt(252)
-    vol_pct = rolling_vol.expanding().rank(pct=True) * 100
+    vol_pct = rolling_vol.rolling(252, min_periods=1).rank(pct=True) * 100  # Fixed: was expanding()
     high_vol = (vol_pct >= vol_threshold_pct).values
 
     # Precompute all 4 MAs
@@ -435,7 +441,7 @@ def signal_macro_regime_dual_ma(
         ff = fed_funds.reindex(price.index, method="ffill").values
         yc = yield_curve.reindex(price.index, method="ffill").values
         cs = credit_spread.reindex(price.index, method="ffill")
-        cs_pct = cs.expanding().rank(pct=True).values * 100
+        cs_pct = cs.rolling(252, min_periods=1).rank(pct=True).values * 100  # Fixed: was expanding()
 
         # Policy hostile: yield curve inverted OR Fed hiking
         ff_s = pd.Series(ff, index=price.index)

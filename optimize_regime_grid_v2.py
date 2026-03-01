@@ -77,12 +77,18 @@ def precompute_mas(prices_arr, max_ma=350):
 def precompute_vol_regimes(daily_ret_arr, price_index,
                            vol_lookbacks, vol_thresholds):
     """Precompute high_vol boolean array for each (lookback, threshold) combo.
+
+    FIXED: Uses rolling percentile (252-day window, 1 year) instead of expanding
+    percentile to prevent historical extremes (e.g., 2008 crisis) from permanently
+    distorting current regime signals.
+
     Returns dict[(lookback, threshold) -> np.ndarray of bool]."""
     regimes = {}
     ret_series = pd.Series(daily_ret_arr, index=price_index)
     for lb in vol_lookbacks:
         rolling_vol = ret_series.rolling(lb).std() * np.sqrt(252)
-        vol_pct = rolling_vol.expanding().rank(pct=True) * 100
+        # Fixed: rolling percentile (252-day window) instead of expanding
+        vol_pct = rolling_vol.rolling(252, min_periods=1).rank(pct=True) * 100
         vol_pct_vals = vol_pct.values
         for th in vol_thresholds:
             high_vol = np.zeros(len(daily_ret_arr), dtype=bool)

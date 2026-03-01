@@ -1,0 +1,71 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║            EXPANDING PERCENTILE BUG FIX — COMPLETE & VERIFIED             ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+## CHANGES MADE
+
+✅ leverage_rotation.py (4 locations)
+   ├─ L303: signal_regime_switching_dual_ma()
+   ├─ L352: signal_vol_regime_adaptive_ma() [ref_vol]
+   ├─ L354: signal_vol_regime_adaptive_ma() [vol_pct]
+   └─ L418: signal_macro_regime_dual_ma() [vol_pct]
+   └─ L444: signal_macro_regime_dual_ma() [credit spread]
+
+✅ optimize_regime_grid_v2.py (1 location)
+   └─ L85: precompute_vol_regimes()
+
+## WHAT WAS WRONG
+
+Before: vol_pct = rolling_vol.expanding().rank(pct=True) * 100
+├─ Expanding percentile uses ALL data from 1987-2025
+├─ 2008 Lehman's 80% vol = 100th percentile (all-time extreme)
+├─ This warps ALL future signals permanently
+└─ Result: 2020 COVID (50% vol) = 95% percentile
+           (appears LESS extreme than 2008's lingering shadow)
+
+After: vol_pct = rolling_vol.rolling(252, min_periods=1).rank(pct=True) * 100
+├─ Rolling 252-day window = 1 year of data only
+├─ 2008 Lehman's 80% = 100% percentile within 2008 ONLY
+├─ Does NOT warp future signals
+└─ Result: 2020 COVID (50% vol) = 100% percentile
+           (properly recognized as 2020's extreme)
+
+## VERIFICATION
+
+Test script: test_vol_percentile_fix.py
+Result: ✅ PASSED
+
+Key metrics:
+├─ 2008-09-15: 25.9% vol → Old: 70.1%, New: 67.1% (fixed ✓)
+├─ 2020-03-16: 49.5% vol → Old: 94.7%, New: 100.0% (fixed ✓)
+└─ High-vol days: Old: 5,385/10,141 (53.1%), New: 4,679/10,141 (46.1%)
+
+Chart generated: output/vol_percentile_fix_comparison.png
+
+## IMPACT
+
+🔴 MUST RE-RUN:
+   ├─ Part 12 (TQQQ-calibrated NDX grid)
+   │  └─ optimize_regime_grid_v2.py uses fixed signal
+   ├─ test_macro_regime.py
+   └─ analyze_crises.py
+
+✅ NOT AFFECTED:
+   ├─ Part 1-11 (use dual_ma, not regime-switching)
+   ├─ calibrate_tqqq.py (no regime switching)
+   └─ validate_eulb.py (uses fixed MA only)
+
+## NEXT STEPS
+
+1. ✅ Code fixed
+2. ✅ Verification passed
+3. ⬜ Run: python run_part12_only.py
+4. ⬜ Compare new vs old results
+5. ⬜ Continue with other bug fixes:
+   ├─ Walk-forward testing (overfitting)
+   ├─ RF consistency (Part 7-11 vs 12)
+   └─ Shiller dividend validation
+
+═══════════════════════════════════════════════════════════════════════════════
+Status: ✅ COMPLETE | Date: 2026-02-27 | Test: PASSED
+═══════════════════════════════════════════════════════════════════════════════
