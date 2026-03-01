@@ -460,7 +460,7 @@ from pathlib import Path
 import pandas as pd
 
 # Load correction table
-corrections = pd.read_csv(Path("output") / "Part7_lag_correction_table.csv")
+corrections = pd.read_csv(Path("output") / "Part7_lag_correction_table.csv")  # or Part8
 best_combo = corrections.iloc[0]  # top 1
 
 reported_cagr = best_combo["lag0_CAGR"]
@@ -468,6 +468,29 @@ realistic_cagr = reported_cagr / best_combo["CAGR_Correction_Factor"]
 
 print(f"Reported: {reported_cagr:.1%} → Realistic: {realistic_cagr:.1%}")
 ```
+
+### ⚠️ CRITICAL WARNING: Part 8 (IXIC) Fast=2 Combos
+
+**DO NOT USE** Part 8 combos with `fast=2`:
+```
+Combo          Reported CAGR  Realistic CAGR  Correction Factor
+MA(2,51)       76.32%         32.56%          ÷2.344x
+MA(2,52)       75.50%         31.84%          ÷2.371x
+MA(2,53)       74.94%         31.80%          ÷2.356x
+MA(2,50)       76.71%         31.51%          ÷2.434x
+```
+
+**Why avoid?**
+- Correction factors > 2.3x indicate extreme look-ahead bias
+- Reported 76% CAGR becomes realistic 32% CAGR (44% difference!)
+- Fast=2 only 2 days of data → reacts to intraday noise, not signal
+- Unreliable for live trading
+
+**Recommended alternative:**
+- Use Part 8 combos with `fast ≥ 7` instead (correction ~1.2x, much safer)
+- Or use Part 12 (NDX 3x) exclusively (lag=1, Ken French RF, already validated)
+
+**Reference**: See `output/Part8_lag_correction_table.csv` for full correction table
 
 ---
 
