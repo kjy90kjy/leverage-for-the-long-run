@@ -25,7 +25,7 @@ import numpy as np
 from pathlib import Path
 import warnings
 
-OUT_DIR = Path(__file__).parent / "output"
+OUT_DIR = Path(__file__).resolve().parent.parent / "output"
 
 # Precomputed correction factors from fix_part79_lag_mismatch.py
 PART7_CORRECTIONS = {

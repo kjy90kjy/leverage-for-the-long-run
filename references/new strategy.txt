@@ -1,0 +1,1617 @@
+【필독사항】
+
+1. 별도 알림 시스템(텔레그램 등) 또는 커스텀 어플 없으면 사용이 어려움
+
+2. 과최적화 우려가 있으나, 본인은 그냥 이걸로 투자 예정(아직 신호 미발생)
+
+3. 중도 탑승 절대 금지(재진입 신호에 탑승 금지)
+
+4. 모든 매매는 종가(앱장)에서만 진행
+
+
+
+
+
+
+
+트레이딩뷰 코드 공유: https://kr.tradingview.com/script/MFnGOY8T/
+
+ ※ 트레이딩뷰 결제(기본 + 나스닥 거래소 데이터)되어 있으면 간단한 세팅으로 텔레그램 알림 받을 수 있도록 알림 항목 부분 정리해놓았음.(구글 앱 스크립트 + 트레이딩뷰 얼러트 설정 / ai한테 물어보면 잘 알려줌)
+
+39784.png 200일 티큐 변형매매법(최종)
+
+
+
+
+
+
+백테스트 결과
+
+image.png 200일 티큐 변형매매법(최종)
+1번 전략: 200일선[오리지널 버전(별도 익절 없음)]
+
+2번 전략: 본 전략
+  ※ 동일한 조건으로 백테스트 검증을 위한 파이썬 코드 아래에 작성
+
+
+
+
+
+
+
+구체적인 매매방법
+
+■ 1) 들어가는 조건 (진입)
+
+▶ 100% 바로 진입
+- TQQQ가 200일선 대비 101.00% 이상
+→ 100%
+
+▶ 10%만 진입
+- TQQQ가 200일선 위는 아님
+- QQQ 3일선 > 161일선
+→ 10%
+▶ 10% → 100% 확대
+- 200일선 이격도 기울기 ≥ 0.1100
+- 200일선 이격도 ≤ 98.8%
+- 20일 변동성 ≤ 6.0%
+→ 100%
+
+
+■ 2) 들고 있다가 줄이는 경우 (익절 / 감량)
+▶ 많이 올랐을 때 자동 감량
+- 200일선 이격도 ≥ 139.0% → 100% → 90%
+- 200일선 이격도 ≥ 146.0% → 100% → 80%
+- 200일선 이격도 ≥ 149.0% → 5%만 남김
+- 200일선 이격도 ≥ 151.0% → 전부 정리
+(해제 기준: 132 / 138 / 140 / 118 이하로 내려오면 단계 해제)
+▶ 수익 일부 확정
+- 100%로 새로 진입 후
+- 진입가 대비 +10% 도달
+→ 95%로 1회 감량(5% 익절)
+
+
+■ 3) 전부 정리되는 경우 (강제 청산)
+▶ 변동성 과열
+- 20일 변동성 ≥ 5.9%
+→ 0%
+▶ 시장 약세
+- SPY가 200일선 대비 97.75% 이하
+→ 0%
+▶ 손절
+- 비중 80% 이상 상태에서
+- 진입가 × 0.941 이하 (-5.9%)
+→ 0%
+
+
+■ 4) 재진입 구조
+▶ 손절이 없었던 경우
+- 기본 추세 조건 맞으면 바로 재진입
+▶ 손절이 있었던 경우
+- QQQ RSI(14) ≥ 43 → 재진입 허용
+- QQQ RSI(14) < 43 → 0% 유지
+
+
+■ 5) 실제 작동 우선순위
+1. 변동성 5.9% 이상이면 0%
+2. SPY 97.75% 이하이면 0%
+3. 고비중(80% 이상)에서 -5.9%면 손절
+4. 손절 후 RSI 43 미만이면 재진입 금지
+5. 기본 추세 판단 (100 / 10 / 0)
+6. 과열 구간이면 단계적 감량
+7. +10% 수익이면 95%로 감량
+
+
+
+
+
+
+
+
+
+
+
+
+
+백테스트 실행 코드
+
+(CSV 파일: A열 날짜, B열 QQQ 종가, C열 TQQQ 종가, D열 QQQ 3일선, E열 QQQ 161일선, F열 TQQQ 200일선, G열 TQQQ 200일 이격도, H열 SPY 종가, I열 SPY 200일선)
+
+
+
+# -*- coding: utf-8 -*-
+
+"""
+
+김째매매법(Pine v6)과 '동일한 목표 비중(assetCode / weight)'을 산출하기 위한 레퍼런스 구현.
+
+
+
+- 일봉 종가 확정 1회 업데이트(=Pine의 barstate.isconfirmed)
+
+- 20일 변동성 락: 표본표준편차(ddof=1)
+
+- 200일 이격도 히스테리시스(enter=101, exit=100)
+
+- SPY 필터 히스테리시스 + confirmDays
+
+- linreg slope 기반 slopeBoost
+
+- overheatStage(4단계) + 원금보호손절 + 재진입 RSI 제한 + TP10
+
+
+
+사용법:
+
+1) CSV 경로를 FILE_PATH에 지정
+
+2) python script 실행
+
+3) 결과: 날짜별 S1/S2/S3 weight 및 assetCode 출력/저장 가능
+
+
+
+검증 팁:
+
+- TradingView에서 codeWeight(assetCode)를 plot로 출력한 뒤 "Export chart data"로 CSV 저장,
+
+  본 스크립트의 결과와 날짜별 비교하면 1:1 검증 가능.
+
+"""
+
+
+
+from __future__ import annotations
+
+
+
+import math
+
+from dataclasses import dataclass
+
+from typing import Optional, Tuple
+
+
+
+import numpy as np
+
+import pandas as pd
+
+
+
+
+
+# =========================
+
+# 0) 파일 경로
+
+# =========================
+
+FILE_PATH = "/mnt/data/실제 qqq 등 데이터.csv"
+
+ENCODING = "cp949"
+
+
+
+
+
+# =========================
+
+# 1) Pine 입력값(기본값)
+
+# =========================
+
+@dataclass(frozen=True)
+
+class BasicParams:
+
+    # RSI
+
+    rsi_len: int = 14
+
+    rsi_reentry_thr: float = 43.0
+
+
+
+    # Vol lock
+
+    vol_threshold: float = 0.059  # 5.9%
+
+    vol_len: int = 20
+
+
+
+    # 200MA hysteresis for TQQQ dist200
+
+    dist200_enter: float = 101.00
+
+    dist200_exit: float = 100.00
+
+
+
+    # slopeBoost
+
+    use_slope_boost: bool = True
+
+    slope_len: int = 45
+
+    slope_thr: float = 0.1100
+
+    dist_cap: float = 98.8
+
+    vol_cap: float = 0.06
+
+
+
+    # overheat split
+
+    use_overheat_split: bool = True
+
+    overheat1_enter: float = 139.0
+
+    overheat1_exit: float = 132.0
+
+    overheat2_enter: float = 146.0
+
+    overheat2_exit: float = 138.0
+
+    overheat3_enter: float = 149.0
+
+    overheat3_exit: float = 140.0
+
+    overheat4_enter: float = 151.0
+
+    overheat4_exit: float = 118.0
+
+
+
+    # principal stop
+
+    use_principal_stop: bool = True
+
+    principal_stop_pct: float = 0.941
+
+
+
+    # SPY filter
+
+    use_spy_filter: bool = True
+
+    spy_enter: float = 100.25
+
+    spy_exit: float = 97.75
+
+    spy_confirm_days: int = 1
+
+    spy_bear_cap: float = 0.0  # S2=0.0, S3=0.10
+
+
+
+    # TP10
+
+    use_tp10: bool = True
+
+    tp10_trigger: float = 0.10
+
+    tp10_cap: float = 0.95
+
+
+
+
+
+# =========================
+
+# 2) 유틸: numeric 정제
+
+# =========================
+
+def to_float_series(s: pd.Series) -> pd.Series:
+
+    if pd.api.types.is_numeric_dtype(s):
+
+        return s.astype(float)
+
+    return pd.to_numeric(s.astype(str).str.replace(",", ""), errors="coerce").astype(float)
+
+
+
+
+
+# =========================
+
+# 3) Pine codeWeight/weightToCode 구현
+
+# =========================
+
+def code_weight(code: int) -> float:
+
+    if code == 2:
+
+        return 1.00
+
+    if code == 3:
+
+        return 0.90
+
+    if code == 4:
+
+        return 0.80
+
+    if code == 1:
+
+        return 0.10
+
+    if code == 5:
+
+        return 0.05
+
+    if code == 0:
+
+        return 0.00
+
+    if code >= 100:
+
+        return float(min(max(code / 1000.0, 0.0), 1.0))
+
+    return 0.00
+
+
+
+
+
+def weight_to_code(w: float) -> int:
+
+    wC = float(min(max(w, 0.0), 1.0))
+
+    eps = 0.0005
+
+    if wC <= eps:
+
+        return 0
+
+    if abs(wC - 0.05) < eps:
+
+        return 5
+
+    if abs(wC - 0.10) < eps:
+
+        return 1
+
+    if abs(wC - 0.80) < eps:
+
+        return 4
+
+    if abs(wC - 0.90) < eps:
+
+        return 3
+
+    if abs(wC - 1.00) < eps:
+
+        return 2
+
+    return int(round(wC * 1000.0))
+
+
+
+
+
+def is_high_exposure(code: int) -> bool:
+
+    return code_weight(code) >= (0.80 - 1e-9)
+
+
+
+
+
+# =========================
+
+# 4) Pine RSI(Wilder) 구현 (au/ad 초기 SMA, 이후 Wilder smoothing)
+
+# =========================
+
+def rsi_wilder(close: np.ndarray, length: int) -> np.ndarray:
+
+    n = len(close)
+
+    rsi = np.full(n, np.nan, dtype=float)
+
+    if n == 0:
+
+        return rsi
+
+
+
+    ch = np.diff(close, prepend=np.nan)
+
+    up = np.where(np.isnan(ch), np.nan, np.maximum(ch, 0.0))
+
+    dn = np.where(np.isnan(ch), np.nan, np.maximum(-ch, 0.0))
+
+
+
+    # SMA for warm-start
+
+    up_sma = pd.Series(up).rolling(length, min_periods=length).mean().to_numpy()
+
+    dn_sma = pd.Series(dn).rolling(length, min_periods=length).mean().to_numpy()
+
+
+
+    au = np.full(n, np.nan, dtype=float)
+
+    ad = np.full(n, np.nan, dtype=float)
+
+
+
+    for i in range(n):
+
+        if i == 0:
+
+            continue
+
+        if np.isnan(au[i - 1]):
+
+            au[i] = up_sma[i]
+
+            ad[i] = dn_sma[i]
+
+        else:
+
+            au[i] = (au[i - 1] * (length - 1.0) + up[i]) / float(length)
+
+            ad[i] = (ad[i - 1] * (length - 1.0) + dn[i]) / float(length)
+
+
+
+        if np.isnan(au[i]) or np.isnan(ad[i]):
+
+            continue
+
+
+
+        if au[i] == 0 and ad[i] == 0:
+
+            rsi[i] = 50.0
+
+        elif ad[i] == 0:
+
+            rsi[i] = 100.0
+
+        elif au[i] == 0:
+
+            rsi[i] = 0.0
+
+        else:
+
+            rs = au[i] / ad[i]
+
+            rsi[i] = 100.0 - (100.0 / (1.0 + rs))
+
+
+
+    return rsi
+
+
+
+
+
+# =========================
+
+# 5) Pine sampleStdev 구현 = 표본표준편차(ddof=1)
+
+# =========================
+
+def sample_stdev(series: np.ndarray, length: int) -> np.ndarray:
+
+    # Pine: sqrt( sma((x-m)^2)*len/(len-1) ) == rolling.std(ddof=1)
+
+    return pd.Series(series).rolling(length, min_periods=length).std(ddof=1).to_numpy()
+
+
+
+
+
+# =========================
+
+# 6) Pine ta.linreg 기반 distSlope 구현
+
+#    distSlope = linreg(y,len,0) - linreg(y,len,1) == 회귀선 slope(m)
+
+# =========================
+
+def rolling_linreg_slope(y: np.ndarray, length: int) -> np.ndarray:
+
+    n = len(y)
+
+    out = np.full(n, np.nan, dtype=float)
+
+    if length <= 1:
+
+        return out
+
+
+
+    x = np.arange(length, dtype=float)  # 0..len-1 (oldest -> newest)
+
+    sum_x = x.sum()
+
+    sum_x2 = (x * x).sum()
+
+    denom = length * sum_x2 - (sum_x * sum_x)
+
+    if denom == 0:
+
+        return out
+
+
+
+    for i in range(length - 1, n):
+
+        w = y[i - length + 1 : i + 1]
+
+        if np.isnan(w).any():
+
+            continue
+
+        sum_y = float(w.sum())
+
+        sum_xy = float((x * w).sum())
+
+        m = (length * sum_xy - sum_x * sum_y) / denom
+
+        out[i] = m
+
+    return out
+
+
+
+
+
+# =========================
+
+# 7) 전략 S1: TQQQ 200MA 상/하향 돌파 = 상태전환(100%/현금)
+
+# =========================
+
+def compute_s1_tqqq_200ma_cross(time: np.ndarray, t_close: np.ndarray, t_ma200: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+
+    """
+
+    - 상향 돌파: (전일 close <= 전일 ma200) AND (금일 close > 금일 ma200)  -> 100%
+
+    - 하향 돌파: (전일 close >= 전일 ma200) AND (금일 close < 금일 ma200)  -> 0%
+
+    - 그 외: 직전 상태 유지
+
+    """
+
+    n = len(t_close)
+
+    code = np.zeros(n, dtype=int)
+
+    weight = np.zeros(n, dtype=float)
+
+
+
+    in_pos = False  # 100% 보유 여부
+
+
+
+    for i in range(n):
+
+        if np.isnan(t_close[i]) or np.isnan(t_ma200[i]):
+
+            in_pos = False
+
+            code[i] = 0
+
+            weight[i] = 0.0
+
+            continue
+
+
+
+        if i == 0 or np.isnan(t_close[i - 1]) or np.isnan(t_ma200[i - 1]):
+
+            # 첫 유효구간: 규칙상 돌파 판단 불가 -> 상태 유지(초기 현금)
+
+            code[i] = 2 if in_pos else 0
+
+            weight[i] = 1.0 if in_pos else 0.0
+
+            continue
+
+
+
+        cross_up = (t_close[i - 1] <= t_ma200[i - 1]) and (t_close[i] > t_ma200[i])
+
+        cross_dn = (t_close[i - 1] >= t_ma200[i - 1]) and (t_close[i] < t_ma200[i])
+
+
+
+        if (not in_pos) and cross_up:
+
+            in_pos = True
+
+        elif in_pos and cross_dn:
+
+            in_pos = False
+
+
+
+        code[i] = 2 if in_pos else 0
+
+        weight[i] = 1.0 if in_pos else 0.0
+
+
+
+    return code, weight
+
+
+
+
+
+# =========================
+
+# 8) 전략 S2/S3: 김째매매법(=기본전략+SPY필터+락+손절+TP10+분할매도)
+
+# =========================
+
+def compute_basic_strategy(
+
+    time: np.ndarray,
+
+    qqq_close: np.ndarray,
+
+    q_ma3: np.ndarray,
+
+    q_ma161: np.ndarray,
+
+    t_close: np.ndarray,
+
+    t_ma200: np.ndarray,
+
+    spy_close: np.ndarray,
+
+    spy_ma200: np.ndarray,
+
+    params: BasicParams,
+
+) -> Tuple[np.ndarray, np.ndarray]:
+
+    """
+
+    Pine 로직 순서를 그대로 따라가며 assetCode를 산출.
+
+    반환:
+
+      - codes: int assetCode
+
+      - weights: float (codeWeight)
+
+    """
+
+    n = len(t_close)
+
+    codes = np.zeros(n, dtype=int)
+
+    weights = np.zeros(n, dtype=float)
+
+
+
+    # --- 파생지표 계산 (Pine과 동일 정의) ---
+
+    # dist200
+
+    dist200 = np.where(np.isnan(t_close) | np.isnan(t_ma200) | (t_ma200 == 0), np.nan, (t_close / t_ma200) * 100.0)
+
+
+
+    # vol20: sample stdev of daily returns
+
+    t_ret = np.full(n, np.nan, dtype=float)
+
+    t_ret[1:] = (t_close[1:] / t_close[:-1]) - 1.0
+
+    t_v20 = sample_stdev(t_ret, params.vol_len)
+
+
+
+    # spyDist200
+
+    spyDist200 = np.where(
+
+        np.isnan(spy_close) | np.isnan(spy_ma200) | (spy_ma200 == 0),
+
+        np.nan,
+
+        (spy_close / spy_ma200) * 100.0,
+
+    )
+
+
+
+    # RSI
+
+    q_rsi = rsi_wilder(qqq_close, params.rsi_len)
+
+    rsi_reentry_ok = (~np.isnan(q_rsi)) & (q_rsi >= params.rsi_reentry_thr)
+
+
+
+    # distSlope
+
+    dist_slope = rolling_linreg_slope(dist200, params.slope_len)
+
+
+
+    # readyLogic (Pine의 핵심 지표만)
+
+    ready = (
+
+        (~np.isnan(q_ma3))
+
+        & (~np.isnan(q_ma161))
+
+        & (~np.isnan(t_v20))
+
+        & (~np.isnan(dist200))
+
+        & ((~params.use_spy_filter) | (~np.isnan(spyDist200)))
+
+    )
+
+
+
+    # --- 상태 변수 (Pine var 동치) ---
+
+    locked = False
+
+    assetCode = 0
+
+
+
+    slopeOkFlag = False
+
+    slopeApplicableFlag = False
+
+
+
+    above200Hyst = False
+
+    above200HystInited = False
+
+
+
+    overheatStage = 0
+
+
+
+    fullEntryClose = math.nan
+
+    fullHighClose = math.nan
+
+    lastPrincipalStopPrice = math.nan
+
+
+
+    reentryLock = False
+
+
+
+    spyBull = False
+
+    spyInited = False
+
+    spyConfirmCnt = 0
+
+
+
+    tp10CycleActive = False
+
+    tp10Reduced = False
+
+    tp10EntryClose = math.nan
+
+
+
+    posEntryAvgClose = math.nan
+
+    posEntryAvgClosePrev = math.nan
+
+
+
+    # safe values
+
+    volThrSafe = max(params.vol_threshold, 1e-6)
+
+
+
+    dist200ExitSafe = params.dist200_exit
+
+    dist200EnterSafe = max(params.dist200_enter, dist200ExitSafe + 0.01)
+
+
+
+    spyExitSafe = params.spy_exit
+
+    spyEnterSafe = max(params.spy_enter, spyExitSafe + 0.01)
+
+    spyConfirmSafe = max(int(params.spy_confirm_days), 1)
+
+    spyBearCapSafe = min(max(params.spy_bear_cap, 0.0), 1.0)
+
+
+
+    # overheat safe
+
+    s1Enter = params.overheat1_enter
+
+    s1Exit = min(params.overheat1_exit, s1Enter - 0.01)
+
+
+
+    s2Enter = max(params.overheat2_enter, s1Enter + 0.01)
+
+    s2Exit = min(params.overheat2_exit, s2Enter - 0.01)
+
+
+
+    s3Enter = max(params.overheat3_enter, s2Enter + 0.01)
+
+    s3Exit = min(params.overheat3_exit, s3Enter - 0.01)
+
+
+
+    s4Enter = max(params.overheat4_enter, s3Enter + 0.01)
+
+    s4Exit = min(params.overheat4_exit, s4Enter - 0.01)
+
+
+
+    for i in range(n):
+
+        prevAsset = assetCode
+
+        posEntryAvgClosePrev = posEntryAvgClose
+
+
+
+        if not bool(ready[i]):
+
+            # Pine: readyLogic=false이면 전 상태 리셋
+
+            assetCode = 0
+
+            locked = False
+
+            slopeOkFlag = False
+
+            slopeApplicableFlag = False
+
+
+
+            above200Hyst = False
+
+            above200HystInited = False
+
+            overheatStage = 0
+
+
+
+            fullEntryClose = math.nan
+
+            fullHighClose = math.nan
+
+            lastPrincipalStopPrice = math.nan
+
+
+
+            reentryLock = False
+
+
+
+            spyBull = False
+
+            spyInited = False
+
+            spyConfirmCnt = 0
+
+
+
+            tp10CycleActive = False
+
+            tp10Reduced = False
+
+            tp10EntryClose = math.nan
+
+
+
+            posEntryAvgClose = math.nan
+
+            posEntryAvgClosePrev = math.nan
+
+
+
+            codes[i] = assetCode
+
+            weights[i] = code_weight(assetCode)
+
+            continue
+
+
+
+        # 1) vol lock
+
+        locked = (t_v20[i] + 1e-10) >= volThrSafe
+
+
+
+        # 2) SPY filter state machine
+
+        if not params.use_spy_filter:
+
+            spyBull = True
+
+            spyInited = True
+
+            spyConfirmCnt = 0
+
+        else:
+
+            if not spyInited:
+
+                spyBull = bool(spyDist200[i] >= spyEnterSafe)
+
+                spyInited = True
+
+                spyConfirmCnt = 0
+
+            else:
+
+                if spyBull:
+
+                    if spyDist200[i] <= spyExitSafe:
+
+                        spyConfirmCnt += 1
+
+                        if spyConfirmCnt >= spyConfirmSafe:
+
+                            spyBull = False
+
+                            spyConfirmCnt = 0
+
+                    else:
+
+                        spyConfirmCnt = 0
+
+                else:
+
+                    if spyDist200[i] >= spyEnterSafe:
+
+                        spyConfirmCnt += 1
+
+                        if spyConfirmCnt >= spyConfirmSafe:
+
+                            spyBull = True
+
+                            spyConfirmCnt = 0
+
+                    else:
+
+                        spyConfirmCnt = 0
+
+
+
+        spyBearNow = params.use_spy_filter and spyInited and (not spyBull)
+
+        spyForceCash = spyBearNow and (spyBearCapSafe <= 1e-9)
+
+
+
+        # 3) reentry block
+
+        reentryBlockedNow = reentryLock and (not bool(rsi_reentry_ok[i]))
+
+
+
+        # 4) 200dist hysteresis
+
+        if not above200HystInited:
+
+            above200Hyst = bool(dist200[i] >= dist200EnterSafe)
+
+            above200HystInited = True
+
+        else:
+
+            if above200Hyst and (dist200[i] <= dist200ExitSafe):
+
+                above200Hyst = False
+
+            elif (not above200Hyst) and (dist200[i] >= dist200EnterSafe):
+
+                above200Hyst = True
+
+
+
+        # 5) baseCode
+
+        if locked or spyForceCash or reentryBlockedNow:
+
+            baseCode = 0
+
+            slopeOkFlag = False
+
+            slopeApplicableFlag = False
+
+        else:
+
+            base0 = 2 if above200Hyst else (1 if (q_ma3[i] > q_ma161[i]) else 0)
+
+
+
+            slopeApplicable = (
+
+                params.use_slope_boost
+
+                and (base0 == 1)
+
+                and (not np.isnan(dist_slope[i]))
+
+                and (dist200[i] <= params.dist_cap)
+
+                and (t_v20[i] <= params.vol_cap)
+
+            )
+
+            slopeApplicableFlag = bool(slopeApplicable)
+
+
+
+            slopeOk = bool(slopeApplicable) and (dist_slope[i] >= params.slope_thr)
+
+            slopeOkFlag = bool(slopeOk)
+
+
+
+            baseCode = 2 if slopeOk else base0
+
+
+
+        # 6) overheat stage
+
+        if (not params.use_overheat_split) or locked or spyForceCash or reentryBlockedNow:
+
+            overheatStage = 0
+
+        else:
+
+            st = overheatStage
+
+            if st == 0:
+
+                if baseCode == 2:
+
+                    if dist200[i] >= s4Enter:
+
+                        st = 4
+
+                    elif dist200[i] >= s3Enter:
+
+                        st = 3
+
+                    elif dist200[i] >= s2Enter:
+
+                        st = 2
+
+                    elif dist200[i] >= s1Enter:
+
+                        st = 1
+
+                    else:
+
+                        st = 0
+
+                else:
+
+                    st = 0
+
+            elif st == 1:
+
+                if dist200[i] >= s4Enter:
+
+                    st = 4
+
+                elif dist200[i] >= s3Enter:
+
+                    st = 3
+
+                elif dist200[i] >= s2Enter:
+
+                    st = 2
+
+                elif dist200[i] <= s1Exit:
+
+                    st = 0
+
+                else:
+
+                    st = 1
+
+            elif st == 2:
+
+                if dist200[i] >= s4Enter:
+
+                    st = 4
+
+                elif dist200[i] >= s3Enter:
+
+                    st = 3
+
+                elif dist200[i] <= s1Exit:
+
+                    st = 0
+
+                elif dist200[i] <= s2Exit:
+
+                    st = 1
+
+                else:
+
+                    st = 2
+
+            elif st == 3:
+
+                if dist200[i] >= s4Enter:
+
+                    st = 4
+
+                elif dist200[i] <= s1Exit:
+
+                    st = 0
+
+                elif dist200[i] <= s2Exit:
+
+                    st = 1
+
+                elif dist200[i] <= s3Exit:
+
+                    st = 2
+
+                else:
+
+                    st = 3
+
+            else:
+
+                st = 0 if (dist200[i] <= s4Exit) else 4
+
+
+
+            overheatStage = st
+
+
+
+        preStopCode = baseCode
+
+        if params.use_overheat_split and (not locked) and (not spyForceCash) and (not reentryBlockedNow):
+
+            if overheatStage == 4:
+
+                preStopCode = 0
+
+            elif overheatStage == 3:
+
+                preStopCode = 0 if (baseCode == 0) else 5  # 5%
+
+            elif overheatStage == 2:
+
+                preStopCode = 4 if (baseCode == 2) else baseCode  # 80%
+
+            elif overheatStage == 1:
+
+                preStopCode = 3 if (baseCode == 2) else baseCode  # 90%
+
+
+
+        # 7) principal stop (prevHigh만 대상)
+
+        stopHit = False
+
+        prevHigh = is_high_exposure(prevAsset)
+
+
+
+        if params.use_principal_stop and prevHigh and (not math.isnan(fullEntryClose)):
+
+            lossCutPrice = fullEntryClose * params.principal_stop_pct
+
+            lastPrincipalStopPrice = lossCutPrice
+
+            stopHit = bool(t_close[i] <= lossCutPrice)
+
+            if stopHit:
+
+                reentryLock = True
+
+
+
+        rawCode = 0 if stopHit else preStopCode
+
+        finalCode = rawCode
+
+
+
+        # 8) SPY bear cap
+
+        if spyBearNow:
+
+            if code_weight(finalCode) > (spyBearCapSafe + 1e-9):
+
+                finalCode = weight_to_code(spyBearCapSafe)
+
+
+
+        # 9) reentry block (cap to cash)
+
+        if reentryBlockedNow:
+
+            finalCode = 0
+
+
+
+        # 10) TP10
+
+        wFinalPreTp = code_weight(finalCode)
+
+        inHighNow = wFinalPreTp >= (0.80 - 1e-9)
+
+
+
+        if (not params.use_tp10) or (not inHighNow) or locked or stopHit or spyBearNow or reentryBlockedNow:
+
+            tp10CycleActive = False
+
+            tp10Reduced = False
+
+            tp10EntryClose = math.nan
+
+        else:
+
+            entered100 = (finalCode == 2) and (code_weight(prevAsset) < 0.999) and (not tp10CycleActive) and (not tp10Reduced)
+
+            if entered100:
+
+                tp10CycleActive = True
+
+                tp10Reduced = False
+
+                tp10EntryClose = float(t_close[i])
+
+
+
+            tpHitNow = (
+
+                tp10CycleActive
+
+                and (not tp10Reduced)
+
+                and (finalCode == 2)
+
+                and (not math.isnan(tp10EntryClose))
+
+                and (t_close[i] >= tp10EntryClose * (1.0 + params.tp10_trigger))
+
+            )
+
+            if tpHitNow:
+
+                tp10Reduced = True
+
+
+
+            if tp10Reduced and (finalCode == 2):
+
+                finalCode = weight_to_code(params.tp10_cap)
+
+
+
+        # 11) TP10 이후에도 SPY cap / reentry cap 재확인
+
+        if spyBearNow:
+
+            if code_weight(finalCode) > (spyBearCapSafe + 1e-9):
+
+                finalCode = weight_to_code(spyBearCapSafe)
+
+
+
+        if reentryBlockedNow:
+
+            finalCode = 0
+
+
+
+        assetCode = int(finalCode)
+
+
+
+        # 12) reentryLock 해제: 실제 재진입(비중>0) 시
+
+        if reentryLock and (code_weight(assetCode) > 1e-9):
+
+            reentryLock = False
+
+
+
+        # 13) high exposure tracking (loss cut 기준가 갱신용)
+
+        nowHigh = is_high_exposure(assetCode)
+
+        enteredHigh = nowHigh and (not prevHigh)
+
+        stayedHigh = nowHigh and prevHigh
+
+        exitedHigh = (not nowHigh) and prevHigh
+
+
+
+        if enteredHigh:
+
+            fullEntryClose = float(t_close[i])
+
+            fullHighClose = float(t_close[i])
+
+            lastPrincipalStopPrice = float(t_close[i]) * params.principal_stop_pct
+
+        elif stayedHigh:
+
+            if math.isnan(fullHighClose):
+
+                fullHighClose = float(t_close[i])
+
+            else:
+
+                fullHighClose = max(fullHighClose, float(t_close[i]))
+
+            lastPrincipalStopPrice = float(fullEntryClose) * params.principal_stop_pct
+
+        elif exitedHigh:
+
+            fullEntryClose = math.nan
+
+            fullHighClose = math.nan
+
+            lastPrincipalStopPrice = math.nan
+
+
+
+        if not nowHigh:
+
+            lastPrincipalStopPrice = math.nan
+
+
+
+        # 14) posEntryAvgClose 갱신 (alert용 로직 동치)
+
+        prevW = code_weight(prevAsset)
+
+        nowW = code_weight(assetCode)
+
+        epsW = 1e-9
+
+        if nowW <= epsW:
+
+            posEntryAvgClose = math.nan
+
+        else:
+
+            if prevW <= epsW:
+
+                posEntryAvgClose = float(t_close[i])
+
+            elif nowW > prevW + epsW:
+
+                oldEntry = posEntryAvgClosePrev
+
+                if math.isnan(oldEntry):
+
+                    oldEntry = float(t_close[i])
+
+                posEntryAvgClose = (oldEntry * prevW + float(t_close[i]) * (nowW - prevW)) / nowW
+
+            else:
+
+                posEntryAvgClose = posEntryAvgClosePrev
+
+
+
+        codes[i] = assetCode
+
+        weights[i] = code_weight(assetCode)
+
+
+
+    return codes, weights
+
+
+
+
+
+# =========================
+
+# 9) 메인: 데이터 로드 + S1/S2/S3 산출
+
+# =========================
+
+def load_data(file_path: str) -> pd.DataFrame:
+
+    df = pd.read_csv(file_path, encoding=ENCODING)
+
+    if "time" not in df.columns:
+
+        raise ValueError("CSV에 'time' 컬럼이 필요합니다.")
+
+
+
+    df["time"] = pd.to_datetime(df["time"])
+
+    df = df.sort_values("time").reset_index(drop=True)
+
+
+
+    # 숫자 정제
+
+    for col in df.columns:
+
+        if col == "time":
+
+            continue
+
+        df[col] = to_float_series(df[col])
+
+
+
+    return df
+
+
+
+
+
+def ensure_sma(df: pd.DataFrame, price_col: str, length: int, out_col: str) -> None:
+
+    if out_col in df.columns and df[out_col].notna().sum() > 0:
+
+        return
+
+    df[out_col] = df[price_col].rolling(length, min_periods=length).mean()
+
+
+
+
+
+def main() -> None:
+
+    df = load_data(FILE_PATH)
+
+
+
+    # 컬럼 매핑(현재 업로드 CSV 기준)
+
+    # 필요 시 여기만 바꾸면 됨.
+
+    q_close_col = "QQQ종가"
+
+    t_close_col = "TQQQ종가"
+
+    spy_close_col = "SPY종가"
+
+    spy_ma200_col = "SPY200일선"
+
+
+
+    # SMA 컬럼 확보(없으면 계산)
+
+    ensure_sma(df, q_close_col, 3, "QQQ3일선")
+
+    ensure_sma(df, q_close_col, 161, "QQQ161일선")
+
+    ensure_sma(df, t_close_col, 200, "TQQQ200일선")
+
+    if spy_ma200_col not in df.columns:
+
+        ensure_sma(df, spy_close_col, 200, spy_ma200_col)
+
+
+
+    time = df["time"].to_numpy()
+
+    q_close = df[q_close_col].to_numpy()
+
+    q_ma3 = df["QQQ3일선"].to_numpy()
+
+    q_ma161 = df["QQQ161일선"].to_numpy()
+
+
+
+    t_close = df[t_close_col].to_numpy()
+
+    t_ma200 = df["TQQQ200일선"].to_numpy()
+
+
+
+    spy_close = df[spy_close_col].to_numpy()
+
+    spy_ma200 = df[spy_ma200_col].to_numpy()
+
+
+
+    # --- S1 ---
+
+    s1_code, s1_w = compute_s1_tqqq_200ma_cross(time, t_close, t_ma200)
+
+
+
+    # --- S2 ---
+
+    p_s2 = BasicParams(spy_bear_cap=0.0)  # 하락 추세면 0%
+
+    s2_code, s2_w = compute_basic_strategy(time, q_close, q_ma3, q_ma161, t_close, t_ma200, spy_close, spy_ma200, p_s2)
+
+
+
+    # --- S3 ---
+
+    p_s3 = BasicParams(spy_bear_cap=0.10)  # 하락 추세면 최대 10%
+
+    s3_code, s3_w = compute_basic_strategy(time, q_close, q_ma3, q_ma161, t_close, t_ma200, spy_close, spy_ma200, p_s3)
+
+
+
+    out = pd.DataFrame(
+
+        {
+
+            "time": time,
+
+            "S1_code": s1_code,
+
+            "S1_weight": s1_w,
+
+            "S2_code": s2_code,
+
+            "S2_weight": s2_w,
+
+            "S3_code": s3_code,
+
+            "S3_weight": s3_w,
+
+        }
+
+    )
+
+
+
+    # 간단 sanity print (마지막 10일)
+
+    print(out.tail(10).to_string(index=False))
+
+
+
+    # 필요 시 저장
+
+    out_path = "signals_s1_s2_s3.csv"
+
+    out.to_csv(out_path, index=False, encoding="utf-8-sig")
+
+    print(f"\nSaved: {out_path}")
+
+
+
+
+
+if __name__ == "__main__":
+
+    main()
+

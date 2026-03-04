@@ -17,21 +17,21 @@
 
 [3/6] Phase 1: Coarse grid search (step=10)...
   C      5.0% ( 51,337/1,026,750) | 1197s elapsed, ~22750s remaining | 43 trial/s
-remaining | 16,008 trial/s
-     10.0% (102,674/1,026,750) | 6s elapsed, ~57s remaining | 16,183 trial/s
-     15.0% (154,011/1,026,750) | 10s elapsed, ~54s remaining | 16,207 trial/s
-     20.0% (205,348/1,026,750) | 13s elapsed, ~51s remaining | 16,219 trial/s
-     25.0% (256,685/1,026,750) | 16s elapsed, ~47s remaining | 16,216 trial/s
-     30.0% (308,022/1,026,750) | 19s elapsed, ~44s remaining | 16,256 trial/s
-     35.0% (359,359/1,026,750) | 22s elapsed, ~41s remaining | 16,292 trial/s
-     40.0% (410,696/1,026,750) | 25s elapsed, ~38s remaining | 16,315 trial/s
-     45.0% (462,033/1,026,750) | 28s elapsed, ~35s remaining | 16,314 trial/s
-     50.0% (513,370/1,026,750) | 31s elapsed, ~31s remaining | 16,326 trial/s
-     55.0% (564,707/1,026,750) | 35s elapsed, ~28s remaining | 16,318 trial/s
-     60.0% (616,044/1,026,750) | 38s elapsed, ~25s remaining | 16,329 trial/s
-     65.0% (667,381/1,026,750) | 41s elapsed, ~22s remaining | 16,308 trial/s
-     70.0% (718,718/1,026,750) | 44s elapsed, ~19s remaining | 16,311 trial/s
-     75.0% (770,055/1,026,750) | 47s elapsed, ~16s remaining | 16,275 trial/s
+     10.0% (102,674/1,026,750) | 2353s elapsed, ~21173s remaining | 44 trial/s
+     15.0% (154,011/1,026,750) | 3495s elapsed, ~19805s remaining | 44 trial/s
+     20.0% (205,348/1,026,750) | 4649s elapsed, ~18595s remaining | 44 trial/s
+     25.0% (256,685/1,026,750) | 5777s elapsed, ~17331s remaining | 44 trial/s
+     30.0% (308,022/1,026,750) | 6894s elapsed, ~16087s remaining | 45 trial/s
+     35.0% (359,359/1,026,750) | 8009s elapsed, ~14874s remaining | 45 trial/s
+     40.0% (410,696/1,026,750) | 9133s elapsed, ~13700s remaining | 45 trial/s
+     45.0% (462,033/1,026,750) | 10253s elapsed, ~12531s remaining | 45 trial/s
+     50.0% (513,370/1,026,750) | 11366s elapsed, ~11366s remaining | 45 trial/s
+     55.0% (564,707/1,026,750) | 12490s elapsed, ~10219s remaining | 45 trial/s
+     60.0% (616,044/1,026,750) | 13611s elapsed, ~9074s remaining | 45 trial/s
+     65.0% (667,381/1,026,750) | 14727s elapsed, ~7930s remaining | 45 trial/s
+     70.0% (718,718/1,026,750) | 15845s elapsed, ~6791s remaining | 45 trial/s
+     75.0% (770,055/1,026,750) | 16968s elapsed, ~5656s remaining | 45 trial/s
+ trial/s
      80.0% (821,392/1,026,750) | 50s elapsed, ~13s remaining | 16,272 trial/s
      85.0% (872,729/1,026,750) | 54s elapsed, ~9s remaining | 16,248 trial/s
      90.0% (924,066/1,026,750) | 57s elapsed, ~6s remaining | 16,216 trial/s

@@ -1,11 +1,8 @@
 """
-Vote-based Signal Test: P5 AND (3,161)
+Plateau Solo Comparison: Sym(3,161) vs P5 Optuna vs 5 Plateau Peaks (단독)
 
-AND gate: invested only when BOTH P5 Regime and Sym(3,161) agree.
-- Exit: whichever is faster to go 0
-- Entry: whichever is slower to go 1
-
-Charts: full period, post-dotcom, per-crisis equity grid.
+Vote 없이 각 고원 peak 단독 전략끼리 비교.
+플롯: full period, post dot-com, crisis grid.
 """
 
 import sys
@@ -26,14 +23,16 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from leverage_rotation import (
     download, download_ken_french_rf,
     signal_dual_ma, signal_regime_switching_dual_ma,
     run_lrs, calc_metrics, signal_trades_per_year,
-    _max_entry_drawdown,
+    _max_entry_drawdown, _max_recovery_days,
 )
 
-OUT_DIR = Path(__file__).parent / "output"
+OUT_DIR = Path(__file__).resolve().parent.parent / "output"
 OUT_DIR.mkdir(exist_ok=True)
 
 CALIBRATED_ER = 0.035
@@ -41,7 +40,15 @@ LEVERAGE = 3.0
 SIGNAL_LAG = 1
 COMMISSION = 0.002
 
-P5_PARAMS = dict(fast_low=48, slow_low=323, fast_high=15, slow_high=229,
+PLATEAUS = {
+    "P1": dict(fast_low=48, slow_low=107, fast_high=49, slow_high=205, vol_lookback=120, vol_threshold_pct=70),
+    "P2": dict(fast_low=47, slow_low=124, fast_high=24, slow_high=251, vol_lookback=60,  vol_threshold_pct=70),
+    "P3": dict(fast_low=45, slow_low=120, fast_high=50, slow_high=243, vol_lookback=80,  vol_threshold_pct=70),
+    "P4": dict(fast_low=47, slow_low=124, fast_high=50, slow_high=197, vol_lookback=60,  vol_threshold_pct=70),
+    "P5": dict(fast_low=48, slow_low=298, fast_high=49, slow_high=205, vol_lookback=120, vol_threshold_pct=70),
+}
+
+P5_OPTUNA = dict(fast_low=48, slow_low=323, fast_high=15, slow_high=229,
                  vol_lookback=49, vol_threshold_pct=57.3)
 
 CRISES = [
@@ -56,48 +63,17 @@ CRISES = [
     ("2025 Liberation Day", "2025-02-19", "2025-04-08", "2025-12-31"),
 ]
 
-CONFIRM_DAYS = [0, 1, 2, 3, 5, 10]
+STRAT_NAMES = ["Sym(3,161)", "P5 Optuna", "P1", "P2", "P3", "P4", "P5"]
 
-BASELINES = ["Sym(3,161)", "P5 Regime"]
-BASELINE_STYLES = {
-    "Sym(3,161)":  {"color": "#2ecc71", "ls": "--", "lw": 1.5, "zorder": 2},
-    "P5 Regime":   {"color": "#e74c3c", "ls": "--", "lw": 1.5, "zorder": 3},
+STYLES = {
+    "Sym(3,161)":  {"color": "#2ecc71", "ls": "--", "lw": 2.0, "zorder": 3},
+    "P5 Optuna":   {"color": "#95a5a6", "ls": "--", "lw": 1.5, "zorder": 2},
+    "P1":          {"color": "#2980b9", "ls": "-",  "lw": 1.8, "zorder": 5},
+    "P2":          {"color": "#8e44ad", "ls": "-",  "lw": 1.8, "zorder": 6},
+    "P3":          {"color": "#e67e22", "ls": "-",  "lw": 2.2, "zorder": 9},
+    "P4":          {"color": "#16a085", "ls": "-",  "lw": 1.8, "zorder": 7},
+    "P5":          {"color": "#c0392b", "ls": "-",  "lw": 1.5, "zorder": 4},
 }
-CONFIRM_COLORS = ["#2980b9", "#8e44ad", "#e67e22", "#1abc9c", "#c0392b", "#34495e"]
-
-
-def signal_and_confirmed(sig_a, sig_b, confirm_days=0):
-    """AND gate with entry confirmation.
-
-    Exit: immediate when either signal goes 0.
-    Entry: AND must be 1 for confirm_days consecutive days.
-    confirm_days=0 is plain AND gate.
-    """
-    and_sig = ((sig_a + sig_b) == 2).astype(int)
-    if confirm_days <= 0:
-        return and_sig
-
-    n = len(and_sig)
-    result = np.zeros(n, dtype=int)
-    state = 0          # 0=cash, 1=invested
-    consec_ones = 0    # consecutive days AND==1
-
-    for i in range(n):
-        if and_sig.iloc[i] == 1:
-            consec_ones += 1
-        else:
-            consec_ones = 0
-
-        if state == 0:
-            if consec_ones > confirm_days:  # N full days confirmed
-                state = 1
-        elif state == 1:
-            if and_sig.iloc[i] == 0:
-                state = 0
-
-        result[i] = state
-
-    return pd.Series(result, index=sig_a.index)
 
 
 def find_exit_reentry(sig_sub, peak_date):
@@ -113,26 +89,11 @@ def find_exit_reentry(sig_sub, peak_date):
     return exit_date, reentry_date
 
 
-def get_style(sname):
-    """Return style dict for a strategy name."""
-    if sname in BASELINE_STYLES:
-        return BASELINE_STYLES[sname]
-    # Confirmation variants
-    for i, n in enumerate(CONFIRM_DAYS):
-        if sname == f"AND cf={n}":
-            return {"color": CONFIRM_COLORS[i % len(CONFIRM_COLORS)],
-                    "ls": "-", "lw": 2.0 if n in (0, 3, 5) else 1.5,
-                    "zorder": 5 + i}
-    return {"color": "#333", "ls": "-", "lw": 1.5, "zorder": 1}
-
-
-def plot_fullperiod(equities, strat_names, ndx, title_suffix, fname,
-                    start_date="1988-01-01"):
-    """Full cumulative returns on log scale with crisis shading."""
+def plot_fullperiod(equities, ndx, title_suffix, fname, start_date="1988-01-01"):
     fig, ax = plt.subplots(figsize=(16, 8))
 
-    for sname in strat_names:
-        sty = get_style(sname)
+    for sname in STRAT_NAMES:
+        sty = STYLES[sname]
         eq = equities[sname].loc[start_date:]
         if len(eq) == 0:
             continue
@@ -153,7 +114,8 @@ def plot_fullperiod(equities, strat_names, ndx, title_suffix, fname,
 
     ax.set_yscale("log")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
-    ax.set_title(f"Cumulative Returns {title_suffix}\n(NDX 3x, ER=3.5%, lag=1, comm=0.2%)",
+    ax.set_title(f"Plateau Solo Comparison {title_suffix}\n"
+                 f"(NDX 3x, ER=3.5%, lag=1, comm=0.2%)",
                  fontsize=14, fontweight="bold")
     ax.set_xlabel("Date")
     ax.set_ylabel("Growth of $1 (log)")
@@ -165,15 +127,14 @@ def plot_fullperiod(equities, strat_names, ndx, title_suffix, fname,
     print(f"  -> saved {OUT_DIR / fname}")
 
 
-def plot_crisis_grid(equities, strat_names, ndx):
-    """3x3 per-crisis equity grid."""
+def plot_crisis_grid(equities, ndx):
     fig, axes = plt.subplots(3, 3, figsize=(20, 16))
     axes = axes.flatten()
 
     for idx, (cname, peak, trough, wend) in enumerate(CRISES):
         ax = axes[idx]
-        for sname in strat_names:
-            sty = get_style(sname)
+        for sname in STRAT_NAMES:
+            sty = STYLES[sname]
             eq = equities[sname]
             eq_sub = eq.loc[peak:wend]
             if len(eq_sub) < 2:
@@ -200,21 +161,21 @@ def plot_crisis_grid(equities, strat_names, ndx):
         ax.grid(True, alpha=0.2)
         ax.tick_params(labelsize=8)
         if idx == 0:
-            ax.legend(fontsize=6, loc="lower left")
+            ax.legend(fontsize=7, loc="lower left")
 
-    fig.suptitle("P5 AND (3,161) Entry Confirmation Sweep\n"
+    fig.suptitle("Plateau Solo Comparison: Sym(3,161) vs Optuna vs Grid Peaks\n"
                  "(NDX 3x, ER=3.5%, lag=1, comm=0.2%)",
                  fontsize=14, fontweight="bold")
     fig.tight_layout(rect=[0, 0, 1, 0.95])
-    fig.savefig(OUT_DIR / "vote_crisis_grid.png", dpi=150)
+    fig.savefig(OUT_DIR / "plateau_solo_crisis_grid.png", dpi=150)
     plt.close(fig)
-    print(f"  -> saved {OUT_DIR / 'vote_crisis_grid.png'}")
+    print(f"  -> saved {OUT_DIR / 'plateau_solo_crisis_grid.png'}")
 
 
 def main():
     print("=" * 70)
-    print("  P5 AND (3,161) + Entry Confirmation Sweep")
-    print("  Confirm N = " + str(CONFIRM_DAYS))
+    print("  Plateau Solo Comparison")
+    print("  Sym(3,161) vs P5 Optuna vs 5 Grid Peaks")
     print("  NDX 3x | ER=3.5% | lag=1 | comm=0.2%")
     print("=" * 70)
 
@@ -225,17 +186,13 @@ def main():
 
     # Build signals
     print("  Building signals...")
-    sig_sym3 = signal_dual_ma(ndx, fast=3, slow=161)
-    sig_p5   = signal_regime_switching_dual_ma(ndx, **P5_PARAMS)
+    strats = {}
+    strats["Sym(3,161)"] = signal_dual_ma(ndx, fast=3, slow=161)
+    strats["P5 Optuna"]  = signal_regime_switching_dual_ma(ndx, **P5_OPTUNA)
+    for pname, params in PLATEAUS.items():
+        strats[pname] = signal_regime_switching_dual_ma(ndx, **params)
 
-    strats = {"Sym(3,161)": sig_sym3, "P5 Regime": sig_p5}
-    STRAT_NAMES = list(strats.keys())
-    for n in CONFIRM_DAYS:
-        label = f"AND cf={n}"
-        strats[label] = signal_and_confirmed(sig_p5, sig_sym3, confirm_days=n)
-        STRAT_NAMES.append(label)
-
-    # Run backtests
+    # Backtests
     print("  Running backtests...")
     equities = {}
     for label, sig in strats.items():
@@ -244,21 +201,23 @@ def main():
                                    tbill_rate=rf, signal_lag=SIGNAL_LAG,
                                    commission=COMMISSION)
 
-    # Full-period metrics
+    # Metrics
     rf_scalar = rf.mean() * 252
 
     def print_metrics(title, start_date=None):
-        print(f"\n{'=' * 105}")
+        print(f"\n{'=' * 120}")
         print(f"  {title}")
-        print(f"{'=' * 105}")
-        print(f"  {'Strategy':<20} {'CAGR':>8} {'Sharpe':>8} {'Sortino':>9} "
-              f"{'MDD':>9} {'MDD_Entry':>10} {'Trades/Yr':>10}")
-        print(f"  {'─' * 100}")
+        print(f"{'=' * 120}")
+        print(f"  {'Strategy':<16} {'CAGR':>8} {'Sharpe':>8} {'Sortino':>9} "
+              f"{'MDD':>9} {'MDD_Entry':>10} {'Trades/Yr':>10} {'MaxRecov':>9}")
+        print(f"  {'-' * 115}")
         for label in STRAT_NAMES:
             sig = strats[label]
             eq = equities[label]
             if start_date:
                 eq = eq.loc[start_date:]
+                if len(eq) < 2:
+                    continue
                 eq = eq / eq.iloc[0]
                 sig_sub = sig.loc[start_date:]
                 rf_sub = rf.reindex(eq.index, method="ffill")
@@ -266,32 +225,35 @@ def main():
                 m = calc_metrics(eq, tbill_rate=rf_sc, rf_series=rf_sub)
                 tpy = signal_trades_per_year(sig_sub)
                 mdd_e = _max_entry_drawdown(eq, sig_sub, SIGNAL_LAG)
+                mrd = _max_recovery_days(eq)
             else:
                 m = calc_metrics(eq, tbill_rate=rf_scalar, rf_series=rf)
                 tpy = signal_trades_per_year(sig)
                 mdd_e = _max_entry_drawdown(eq, sig, SIGNAL_LAG)
-            print(f"  {label:<20} {m['CAGR']:>8.2%} {m['Sharpe']:>8.3f} "
-                  f"{m['Sortino']:>9.3f} {m['MDD']:>9.2%} {mdd_e:>10.2%} {tpy:>10.1f}")
+                mrd = _max_recovery_days(eq)
+            print(f"  {label:<16} {m['CAGR']:>8.2%} {m['Sharpe']:>8.3f} "
+                  f"{m['Sortino']:>9.3f} {m['MDD']:>9.2%} {mdd_e:>10.2%} "
+                  f"{tpy:>10.1f} {mrd:>8d}d")
 
     print_metrics("FULL PERIOD (1985-2025)")
     print_metrics("POST DOT-COM (2003-2025)", start_date="2003-01-01")
     print_metrics("MODERN ERA (2010-2025)",   start_date="2010-01-01")
 
-    # Crisis comparison
+    # Crisis detail
     print(f"\n\n{'#' * 70}")
-    print(f"  CRISIS-BY-CRISIS: MDD & MDD_Entry")
+    print(f"  CRISIS-BY-CRISIS")
     print(f"{'#' * 70}")
 
     for cname, peak, trough, wend in CRISES:
         ndx_sub = ndx.loc[peak:trough]
         ndx_dd = ndx_sub.iloc[-1] / ndx_sub.iloc[0] - 1 if len(ndx_sub) > 1 else 0.0
 
-        print(f"\n{'=' * 100}")
+        print(f"\n{'=' * 115}")
         print(f"  {cname}  (NDX {ndx_dd:+.0%})")
-        print(f"{'=' * 100}")
-        print(f"  {'Strategy':<20} {'Pk->Tr':>8} {'MaxDD':>8} {'MDD_Entry':>10} "
+        print(f"{'=' * 115}")
+        print(f"  {'Strategy':<16} {'Pk->Tr':>8} {'MaxDD':>8} {'MDD_Entry':>10} "
               f"{'WinRet':>8} {'D_Exit':>7} {'D_Cash':>7} {'Whip':>5}")
-        print(f"  {'─' * 95}")
+        print(f"  {'-' * 110}")
 
         for sname in STRAT_NAMES:
             sig = strats[sname]
@@ -317,19 +279,16 @@ def main():
             de = f"{d_exit:>6d}d" if d_exit is not None else "  stay"
             dc = f"{d_cash:>6d}d" if d_cash is not None else "     -"
 
-            print(f"  {sname:<20} {pk2tr:>+7.1%} {maxdd:>7.1%} {mdd_e:>10.2%} "
+            print(f"  {sname:<16} {pk2tr:>+7.1%} {maxdd:>7.1%} {mdd_e:>10.2%} "
                   f"{win_ret:>+7.1%} {de} {dc} {whip:>5d}")
 
     # Charts
     print("\n  Generating charts...")
-
-    plot_fullperiod(equities, STRAT_NAMES, ndx, "Full Period (1988-2025)",
-                    "vote_fullperiod.png", start_date="1988-01-01")
-
-    plot_fullperiod(equities, STRAT_NAMES, ndx, "Post Dot-com (2003-2025)",
-                    "vote_post_dotcom.png", start_date="2003-01-01")
-
-    plot_crisis_grid(equities, STRAT_NAMES, ndx)
+    plot_fullperiod(equities, ndx, "Full Period (1988-2025)",
+                    "plateau_solo_fullperiod.png", start_date="1988-01-01")
+    plot_fullperiod(equities, ndx, "Post Dot-com (2003-2025)",
+                    "plateau_solo_postdotcom.png", start_date="2003-01-01")
+    plot_crisis_grid(equities, ndx)
 
     print("\n  Done.")
 

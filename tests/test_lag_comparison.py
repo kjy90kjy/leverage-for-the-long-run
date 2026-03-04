@@ -31,13 +31,15 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from leverage_rotation import (
     download, download_ken_french_rf,
     signal_dual_ma,
     run_lrs, run_buy_and_hold, calc_metrics, signal_trades_per_year,
 )
 
-OUT_DIR = Path(__file__).parent / "output"
+OUT_DIR = Path(__file__).resolve().parent.parent / "output"
 OUT_DIR.mkdir(exist_ok=True)
 
 # ── Config (Part 12 conditions) ──

@@ -45,13 +45,15 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from leverage_rotation import (
     download, download_ken_french_rf,
     signal_dual_ma,
     run_lrs, run_buy_and_hold, calc_metrics, signal_trades_per_year,
 )
 
-OUT_DIR = Path(__file__).parent / "output"
+OUT_DIR = Path(__file__).resolve().parent.parent / "output"
 OUT_DIR.mkdir(exist_ok=True)
 
 CALIBRATED_ER = 0.035

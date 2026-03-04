@@ -25,9 +25,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from leverage_rotation import download
 
-OUT_DIR = Path(__file__).parent / "output"
+OUT_DIR = Path(__file__).resolve().parent.parent / "output"
 OUT_DIR.mkdir(exist_ok=True)
 
 print("\n" + "="*70)

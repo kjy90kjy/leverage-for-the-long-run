@@ -27,6 +27,8 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from leverage_rotation import (
     download, download_ken_french_rf,
     signal_dual_ma, signal_regime_switching_dual_ma,
@@ -34,7 +36,7 @@ from leverage_rotation import (
     _max_entry_drawdown,
 )
 
-OUT_DIR = Path(__file__).parent / "output"
+OUT_DIR = Path(__file__).resolve().parent.parent / "output"
 OUT_DIR.mkdir(exist_ok=True)
 
 CALIBRATED_ER = 0.035
