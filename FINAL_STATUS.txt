@@ -1,0 +1,183 @@
+════════════════════════════════════════════════════════════════════
+🎯 LRS 백테스팅 프로젝트 - 최종 정렬 완료
+════════════════════════════════════════════════════════════════════
+
+✅ 1. 폴더 구조 재정렬
+════════════════════════════════════════════════════════════════════
+
+Root Level (메인 코어)
+├── leverage_rotation.py        핵심 분석 엔진 (Part 1-12)
+└── lrs_standalone.py           프로덕션 4-전략 비교
+
+Organized Folders:
+├── core/                       필수 스크립트 (calibrate_tqqq.py)
+├── analysis/                   검증 & 분석 (validate_eulb, analyze_crises, diag_nasdaq)
+├── optimization/               파라미터 탐색 (optimize_all_full, optimize_regime_grid_v2)
+├── signals/                    실거래 자동화 (daily_signal_generator, telegram)
+├── runners/                    편의 실행 스크립트 (run_part12_only, run_parts7to12, run_grid)
+├── tests/                      검증 & 최적화 (overheat_plateau_optuna, test_kimjje_*, etc)
+├── archive/                    레거시 코드 (Phase 1/2/3 v1)
+└── references/                 참고 자료
+
+════════════════════════════════════════════════════════════════════
+✅ 2. Output 폴더 정리
+════════════════════════════════════════════════════════════════════
+
+output/
+├── grid_search/                그리드 서치 결과
+│   ├── GSPC_TR_3x_grid_results.csv
+│   ├── IXIC_3x_grid_results.csv
+│   └── NDX_calibrated_grid_results.csv
+├── analysis/                   분석 결과 (김째, 위기 분석, 이미지)
+│   ├── crisis_analysis_detail.csv
+│   ├── kimjje_overheat_*.csv
+│   ├── kimjje_overheat_optim.png
+│   ├── kimjje_sensitivity.png
+│   └── plateau_solo_*.png
+├── calibration/                캘리브레이션
+│   ├── Part7_lag_correction_table.csv
+│   └── Part8_lag_correction_table.csv
+├── signals/                    신호 데이터
+│   └── daily_signals.csv
+├── new_analysis/               최신 분석 ⭐
+│   ├── overheat_plateau_20260303_225937.csv
+│   └── original_strategy_validation_*.csv
+└── archive/                    구 결과
+
+════════════════════════════════════════════════════════════════════
+✅ 3. 최종 문서화
+════════════════════════════════════════════════════════════════════
+
+📋 Root Level Docs
+├── README.md ⭐⭐⭐              프로젝트 전체 가이드 (필독)
+├── CLAUDE.md                   상세 기술 가이드
+├── PROJECT_STRUCTURE.md        폴더 & 파일 구조
+└── CHANGELOG.md                변경 이력
+
+📚 Detailed Analysis (docs/)
+├── OVERHEAT_PLATEAU_ANALYSIS_FINAL.md ⭐⭐⭐  최종 분석 (필독!)
+│   └── 결론: 원본 파라미터(139/132→146/138→149/140→151/118)는
+│           안정적 고원지대 → 실거래 적용 ⭐
+│
+├── REGIME_SWITCHING_STRATEGY_REPORT.md       전략 상세
+├── VALIDATION_REPORT.md                      Walk-forward 검증
+├── LAG_CORRECTION_FINAL_REPORT.md            Lag 보정
+├── CRITICAL_REVIEW.md                        발견된 이슈 & 수정
+├── COMPLETION_SUMMARY.md                     완료 사항
+├── DAILY_SIGNAL_SETUP.md                     일일 신호 자동화
+├── TELEGRAM_SCRIPTABLE_SETUP.md              iOS 알림 설정
+├── FIX_SUMMARY.md                            수정 이력
+├── PRIORITY4_STATUS.md                       진행 상황
+└── archive/                                  이전 버전 보고서
+
+════════════════════════════════════════════════════════════════════
+✅ 4. 분석 완료 현황
+════════════════════════════════════════════════════════════════════
+
+✅ Part 1-12 분석
+   - 논문 복제 (1928-2020 S&P 500)
+   - NASDAQ 장기 분석 (1971-2025)
+   - NDX 3x 레버리지 (1985-2025)
+   - Part 12: Regime-Switching (최종 기준, Sortino ~2.0)
+
+✅ 검증 완료
+   - Lag 불일치 정량화 (Part 7-9 vs Part 12, -19.7% CAGR)
+   - Walk-Forward 검증 (OOS > IS, 과적합 미감지)
+   - Expanding Percentile 버그 수정 (신뢰도 100%)
+
+✅ 김째 S2 전략
+   - 독립 검증 완료 (Sortino ~2.1)
+   - 과열 4단계 감량 분석
+
+✅ 과열 파라미터 고원지대 탐색 ⭐⭐⭐
+   - Optuna 기반 3개 기간 최적화 (각 1500 trials)
+   - 기간: NDX (1986~), QQQ (2000~), TQQQ (2011~)
+   - 결과: 원본은 안정적 고원지대 (고원지대 비율 0.94~0.96)
+   - 최종 권장: 원본 파라미터 유지 (실거래 ⭐)
+
+════════════════════════════════════════════════════════════════════
+✅ 5. 파일 통계
+════════════════════════════════════════════════════════════════════
+
+코드:
+  - Root 스크립트: 2개 (leverage_rotation, lrs_standalone)
+  - Core: 1개
+  - Analysis: 3개
+  - Optimization: 3개
+  - Signals: 2개
+  - Runners: 3개
+  - Tests: 9개 (테스트 & 최적화)
+  - Archive: 17개 (레거시)
+
+문서:
+  - Root: 4개 (README, CLAUDE, PROJECT_STRUCTURE, CHANGELOG)
+  - Docs: 13개 (분석 보고서)
+  - Total: 17개
+
+결과:
+  - CSV: 20+개 (그리드, 분석, 캘리브레이션)
+  - PNG: 15+개 (차트)
+  - 전체 Output: 50+개 파일
+
+총 파일: 107개
+
+════════════════════════════════════════════════════════════════════
+🚀 6. 실행 가이드
+════════════════════════════════════════════════════════════════════
+
+신규 사용자:
+  1. README.md 읽기 (10분)
+  2. diag_nasdaq.py 실행 (데이터 검증)
+  3. core/calibrate_tqqq.py 실행 (5분, TQQQ ER 산출)
+  4. leverage_rotation.py 실행 (25-30분, 전체 분석)
+  5. docs/OVERHEAT_PLATEAU_ANALYSIS_FINAL.md 읽기 (최종 결과)
+
+빠른 재실행:
+  python runners/run_part12_only.py      (15분)
+  python runners/run_parts7to12.py       (45분)
+
+최적화 (고급):
+  python optimization/optimize_regime_grid_v2.py  (12분)
+  python tests/overheat_plateau_optuna.py          (25분)
+
+실거래:
+  python signals/daily_signal_generator.py  (일일 신호)
+  python signals/daily_signal_telegram.py   (Telegram 알림)
+
+════════════════════════════════════════════════════════════════════
+📌 7. 최종 결론
+════════════════════════════════════════════════════════════════════
+
+【원본 파라미터】
+  139/132 → 146/138 → 149/140 → 151/118
+  
+  ✅ 고원지대: 안정적 (이웃 평균/최적 = 0.94~0.96)
+  ✅ 강건성: 3개 기간 모두 합리적 성과 (평균 1.914 Sortino)
+  ✅ 권장: 실거래 적용 ⭐⭐⭐
+
+【기간별 최적】
+  - NDX (1986~): 125/107→140/112→151/108→153/100 (Sortino 1.861)
+  - QQQ (2000~): 125/107→132/103→152/117→168/102 (Sortino 2.189)
+  - TQQQ (2011~): 126/107→138/103→146/121→150/85 (Sortino 2.211, 과적합)
+
+【최종 판정】
+  원본 파라미터는 "뾰족한 피크"가 아닌 "안정적 고원지대"에 위치
+  → 실거래에 최적화된 선택
+
+════════════════════════════════════════════════════════════════════
+✉️ 다음 단계
+════════════════════════════════════════════════════════════════════
+
+1. [x] 전략 검증 완료
+2. [x] 김째 S2 독립 검증 완료
+3. [x] 과열 파라미터 Optuna 최적화 완료
+4. [x] 폴더 정렬 & 문서화 완료
+5. [ ] Windows Task Scheduler 자동화
+6. [ ] Telegram 본격 배포
+7. [ ] 실계정 거래 (시뮬레이션 → 실거래)
+
+════════════════════════════════════════════════════════════════════
+Last Updated: 2026-03-03
+Version: 2.0 (과열 파라미터 검증 완료)
+Status: ✅ PRODUCTION READY
+════════════════════════════════════════════════════════════════════
