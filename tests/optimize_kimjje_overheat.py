@@ -33,6 +33,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+import optuna
+from optuna.samplers import TPESampler
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lrs_standalone import (
@@ -653,69 +655,106 @@ if __name__ == "__main__":
         print(f"    {dname}: CAGR={m['CAGR']:.1%}  Sharpe={m['Sharpe']:.2f}  "
               f"Sortino={m['Sortino']:.2f}  MDD={m['MDD']:.1%}")
 
-    # ── [2] Model A: 2-Stage coarse grid ──
-    print("\n[2/7] Model A: 2-Stage Coarse Grid")
+    # ── [2] Model A: 2-Stage Optuna ──
+    print("\n[2/7] Model A: 2-Stage Optuna Search (TPE, ~500 trials)")
     print("=" * 60)
 
-    params_2s = generate_2stage_params()
-    print(f"  생성된 조합 수: {len(params_2s)}")
-    df_2s = run_grid(params_2s, datasets, label="Model A (2-Stage)")
+    def objective_2s(trial):
+        s1_enter = trial.suggest_int("s1_enter", 130, 160, step=2)
+        s1_exit = trial.suggest_int("s1_exit", 115, 140, step=5)
+        gap = trial.suggest_int("gap", 5, 20, step=5)
 
-    grid_keys_2s = ["s1_enter", "s1_exit", "gap"]
-    plateaus_2s = identify_plateaus(df_2s, grid_keys_2s, n=3)
+        if s1_exit >= s1_enter:
+            return 0.0
 
-    print(f"\n  Model A Plateau 중심 ({len(plateaus_2s)}개):")
-    for i, (key, nav, ms) in enumerate(plateaus_2s, 1):
-        p = key_to_params_2stage(key)
-        print(f"    #{i}: {params_summary(p)}")
-        print(f"        own={ms:.3f}  neighbor_avg={nav:.3f}  key={key}")
+        params = key_to_params_2stage({
+            "s1_enter": s1_enter, "s1_exit": s1_exit, "gap": gap
+        })
+        min_sort, _ = eval_across_periods(params, datasets)
+        return min_sort
 
-    # ── [3] Model B: 4-Stage coarse grid ──
-    print("\n[3/7] Model B: 4-Stage Structured Coarse Grid")
+    sampler_2s = TPESampler(seed=42, multivariate=True)
+    study_2s = optuna.create_study(direction="maximize", sampler=sampler_2s)
+    study_2s.optimize(objective_2s, n_trials=500, show_progress_bar=True)
+
+    print(f"  Best min_sortino (2S): {study_2s.best_value:.3f}")
+    best_trial_2s = study_2s.best_trial
+    plateaus_2s = [(best_trial_2s.params, study_2s.best_value, study_2s.best_value)]
+
+    # ── [3] Model B: 4-Stage Optuna ──
+    print("\n[3/7] Model B: 4-Stage Optuna Search (TPE, ~1000 trials)")
     print("=" * 60)
 
-    params_4s = generate_4stage_params()
-    print(f"  생성된 조합 수: {len(params_4s)}")
-    df_4s = run_grid(params_4s, datasets, label="Model B (4-Stage)")
+    def objective_4s(trial):
+        base_enter = trial.suggest_int("base_enter", 130, 160, step=2)
+        spread = trial.suggest_int("spread", 2, 10, step=2)
+        s4_gap = trial.suggest_int("s4_gap", 0, 6, step=2)
+        base_exit = trial.suggest_int("base_exit", 115, 140, step=5)
+        exit_decay = trial.suggest_int("exit_decay", 3, 8)
 
-    grid_keys_4s = ["base_enter", "spread", "s4_gap", "base_exit", "exit_decay"]
-    plateaus_4s = identify_plateaus(df_4s, grid_keys_4s, n=3)
+        s1_enter = float(base_enter)
+        s2_enter = float(base_enter + spread)
+        s3_enter = float(base_enter + 2 * spread)
+        s4_enter = float(base_enter + 3 * spread + s4_gap)
 
-    print(f"\n  Model B Plateau 중심 ({len(plateaus_4s)}개):")
-    for i, (key, nav, ms) in enumerate(plateaus_4s, 1):
-        p = key_to_params_4stage(key)
-        print(f"    #{i}: {params_summary(p)}")
-        print(f"        own={ms:.3f}  neighbor_avg={nav:.3f}  key={key}")
+        s1_exit = float(base_exit)
+        s2_exit = float(base_exit + exit_decay)
+        s3_exit = float(base_exit + 2 * exit_decay)
+        s4_exit = float(base_exit - 15)
 
-    # ── [4] Fine grid around plateaus ──
-    print("\n[4/7] Fine Grid (step=1) around Plateau Centres")
+        if s1_exit >= s1_enter or s2_exit >= s2_enter or \
+           s3_exit >= s3_enter or s4_exit >= s4_enter:
+            return 0.0
+
+        params = replace(
+            BasicParams(spy_bear_cap=0.0),
+            overheat1_enter=s1_enter, overheat1_exit=s1_exit,
+            overheat2_enter=s2_enter, overheat2_exit=s2_exit,
+            overheat3_enter=s3_enter, overheat3_exit=s3_exit,
+            overheat4_enter=s4_enter, overheat4_exit=s4_exit,
+        )
+        min_sort, _ = eval_across_periods(params, datasets)
+        return min_sort
+
+    sampler_4s = TPESampler(seed=42, multivariate=True)
+    study_4s = optuna.create_study(direction="maximize", sampler=sampler_4s)
+    study_4s.optimize(objective_4s, n_trials=1000, show_progress_bar=True)
+
+    print(f"  Best min_sortino (4S): {study_4s.best_value:.3f}")
+    best_trial_4s = study_4s.best_trial
+    plateaus_4s = [(best_trial_4s.params, study_4s.best_value, study_4s.best_value)]
+
+    # Dummy df for later compatibility
+    df_2s = pd.DataFrame([{"min_sortino": study_2s.best_value}])
+    df_4s = pd.DataFrame([{"min_sortino": study_4s.best_value}])
+
+    # ── [4] Finalize Best Candidates (Optuna already optimized) ──
+    print("\n[4/7] Extracting Best Parameters from Optuna")
     print("=" * 60)
 
     best_candidates = []  # (label, params, min_sortino)
 
-    # Model A fine grids
-    for i, (key, nav, ms) in enumerate(plateaus_2s, 1):
-        print(f"\n  Model A Plateau #{i}:")
-        df_fine = run_fine_grid_2stage(key, datasets)
-        if not df_fine.empty:
-            best_row = df_fine.loc[df_fine["min_sortino"].idxmax()]
-            best_key = {k: int(best_row[k]) for k in grid_keys_2s}
-            best_p = key_to_params_2stage(best_key)
-            best_candidates.append((f"A{i}: {params_summary(best_p)}", best_p,
-                                     best_row["min_sortino"]))
-            print(f"    Best: min_sortino={best_row['min_sortino']:.3f}  {params_summary(best_p)}")
+    # Model A best
+    best_2s_params = key_to_params_2stage(best_trial_2s.params)
+    best_candidates.append((f"A1 (Optuna-2S): {params_summary(best_2s_params)}",
+                           best_2s_params, study_2s.best_value))
+    print(f"  Model A: min_sortino={study_2s.best_value:.3f}  {params_summary(best_2s_params)}")
 
-    # Model B fine grids
-    for i, (key, nav, ms) in enumerate(plateaus_4s, 1):
-        print(f"\n  Model B Plateau #{i}:")
-        df_fine = run_fine_grid_4stage(key, datasets)
-        if not df_fine.empty:
-            best_row = df_fine.loc[df_fine["min_sortino"].idxmax()]
-            best_key = {k: int(best_row[k]) for k in grid_keys_4s}
-            best_p = key_to_params_4stage(best_key)
-            best_candidates.append((f"B{i}: {params_summary(best_p)}", best_p,
-                                     best_row["min_sortino"]))
-            print(f"    Best: min_sortino={best_row['min_sortino']:.3f}  {params_summary(best_p)}")
+    # Model B best
+    best_4s_params = replace(
+        BasicParams(spy_bear_cap=0.0),
+        overheat1_enter=float(best_trial_4s.params["base_enter"]),
+        overheat1_exit=float(best_trial_4s.params["base_exit"]),
+        overheat2_enter=float(best_trial_4s.params["base_enter"] + best_trial_4s.params["spread"]),
+        overheat2_exit=float(best_trial_4s.params["base_exit"] + best_trial_4s.params["exit_decay"]),
+        overheat3_enter=float(best_trial_4s.params["base_enter"] + 2*best_trial_4s.params["spread"]),
+        overheat3_exit=float(best_trial_4s.params["base_exit"] + 2*best_trial_4s.params["exit_decay"]),
+        overheat4_enter=float(best_trial_4s.params["base_enter"] + 3*best_trial_4s.params["spread"] + best_trial_4s.params["s4_gap"]),
+        overheat4_exit=float(best_trial_4s.params["base_exit"] - 15),
+    )
+    best_candidates.append((f"B1 (Optuna-4S): {params_summary(best_4s_params)}",
+                           best_4s_params, study_4s.best_value))
+    print(f"  Model B: min_sortino={study_4s.best_value:.3f}  {params_summary(best_4s_params)}")
 
     # Sort by min_sortino
     best_candidates.sort(key=lambda x: x[2], reverse=True)
@@ -804,11 +843,40 @@ if __name__ == "__main__":
     plot_candidates = best_candidates[:4]
     plot_results(plot_candidates, datasets, data_real, "kimjje_overheat_optim.png")
 
+    # ── 최종 추천 파라미터 정리 ──
+    final_results = []
+    for rank, ((label, params, ms), wf_r) in enumerate(
+            zip(best_candidates, wf_ratios), 1):
+        _, details = eval_across_periods(params, datasets)
+        final_results.append({
+            "Rank": rank,
+            "Label": label,
+            "min_Sortino": ms,
+            "WF_Ratio": wf_r,
+            "NDX_Sortino": details["NDX 40yr"]["Sortino"],
+            "QQQ_Sortino": details["QQQ 27yr"]["Sortino"],
+            "TQQQ_Sortino": details["TQQQ 15yr"]["Sortino"],
+            "overheat1_enter": params.overheat1_enter,
+            "overheat1_exit": params.overheat1_exit,
+            "overheat2_enter": params.overheat2_enter,
+            "overheat2_exit": params.overheat2_exit,
+            "overheat3_enter": params.overheat3_enter,
+            "overheat3_exit": params.overheat3_exit,
+            "overheat4_enter": params.overheat4_enter,
+            "overheat4_exit": params.overheat4_exit,
+        })
+
     # CSV 저장
     for name, df in [("2stage", df_2s), ("4stage", df_4s)]:
         csv_path = OUT_DIR / f"kimjje_overheat_{name}_grid.csv"
         df.to_csv(csv_path, index=False)
         print(f"  CSV 저장: {csv_path}")
+
+    # 최종 추천 파라미터 저장
+    df_final = pd.DataFrame(final_results)
+    final_csv_path = OUT_DIR / "kimjje_overheat_final_recommendations.csv"
+    df_final.to_csv(final_csv_path, index=False)
+    print(f"  최종 추천 파라미터 저장: {final_csv_path}")
 
     elapsed_total = time.time() - t_total
     print(f"\n총 실행 시간: {elapsed_total:.0f}초 ({elapsed_total/60:.1f}분)")
