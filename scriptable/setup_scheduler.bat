@@ -25,7 +25,7 @@ if %errorlevel% neq 0 (
 setlocal enabledelayedexpansion
 
 REM Project root
-set PROJECT_ROOT=C:\Users\anti_\Documents\260224_백테스트\leverage-for-the-long-run
+set PROJECT_ROOT=C:\Users\anti_\Documents\Leverage_long_run
 
 REM ================================================================
 REM Task 1: Update Signal JSON hourly (07:00~18:00 ET = 20:00~07:00 KST)

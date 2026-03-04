@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Leverage Rotation Strategy (LRS) backtesting framework that replicates Michael Gayed's 2016 paper "Leverage for the Long Run" and extends analysis to NASDAQ indices. Also independently validates Korean financial blog "eulb"'s TQQQ moving-average trading strategies.
+Leverage Rotation Strategy (LRS) backtesting framework that replicates Michael Gayed's 2016 paper "Leverage for the Long Run" and extends analysis to NASDAQ indices. Also independently validates Korean financial blog "eulb"'s TQQQ moving-average trading strategies and "김째 (Kim-jje)" S2 overheat parameter strategies.
 
 ## Quick Start
 
 ```bash
 pip install numpy pandas matplotlib yfinance openpyxl scipy optuna
 
-python calibrate_tqqq.py       # TQQQ cost calibration — run first (~5 min)
-python leverage_rotation.py    # Full analysis, Parts 1-12 (~25-30 min)
+python core/calibrate_tqqq.py       # TQQQ cost calibration — run first (~5 min)
+python leverage_rotation.py         # Full analysis, Parts 1-12 (~25-30 min)
 ```
 
 ## Running Scripts
@@ -21,72 +21,73 @@ All scripts are standalone Python — no build system, no test framework. Output
 
 **Main analysis:**
 ```bash
-python leverage_rotation.py              # Full pipeline (Parts 1-12)
-python calibrate_tqqq.py                 # TQQQ cost calibration (run first, ER=3.5%)
-python diag_nasdaq.py                    # NASDAQ data quality diagnostics
-python validate_eulb.py                  # Validate against eulb's published results
+python leverage_rotation.py                      # Full pipeline (Parts 1-12)
+python core/calibrate_tqqq.py                    # TQQQ cost calibration (run first, ER=3.5%)
+python analysis/diag_nasdaq.py                   # NASDAQ data quality diagnostics
+python analysis/validate_eulb.py                 # Validate against eulb's published results
 ```
 
 **Phase 2 optimization (full-period, Optuna-based):**
 ```bash
-python optimize_all_full.py              # Plans 4/5/6: Vol-Adaptive, Regime, Vol+Regime (~15 min)
+python optimization/optimize_all_full.py         # Plans 4/5/6: Vol-Adaptive, Regime, Vol+Regime (~15 min)
 ```
 
 **Phase 3 regime grid search:**
 ```bash
-python optimize_regime_grid_v2.py        # Dense grid (step 5/10/5, ~10.6M combos, ~12 min)
+python optimization/optimize_regime_grid_v2.py   # Dense grid (step 5/10/5, ~10.6M combos, ~12 min)
 ```
 
 **Crisis analysis & signal experiments:**
 ```bash
-python analyze_crises.py                 # 9 major NDX crises, 5 strategies
-python tests/test_vote_hysteresis.py     # Vote gate (AND/Hysteresis/OR) comparison
-python tests/test_macro_regime.py        # Macro regime layer testing
-python tests/test_hybrid_entry_exit.py   # Hybrid entry/exit testing
+python analysis/analyze_crises.py                # 9 major NDX crises, 5 strategies
+python tests/test_vote_hysteresis.py             # Vote gate (AND/Hysteresis/OR) comparison
+python tests/test_macro_regime.py                # Macro regime layer testing
+python tests/test_hybrid_entry_exit.py           # Hybrid entry/exit testing
 ```
 
 **Standalone strategy comparison (production):**
 ```bash
-python lrs_standalone.py                 # 4-strategy comparison across 3 data modes (real TQQQ, synthetic QQQ, synthetic NDX)
+python lrs_standalone.py                         # 4-strategy comparison across 3 data modes
 ```
 
-**Kim-jje (김째) strategy analysis:**
+**Kim-jje strategy analysis:**
 ```bash
-python tests/test_kimjje_overheat.py     # Overheat stage analysis — traces history, compares variants
-python tests/test_kimjje_sensitivity.py  # Parameter sensitivity sweeps, plateau width, walk-forward validation
-python tests/optimize_kimjje_overheat.py # Multi-period grid search + plateau detection for overheat params (~30 min)
-python tests/test_plateau_solo.py        # Plateau-center solo strategy comparison
-python tests/test_plateau_vote.py        # Plateau-center vote strategy comparison
-python tests/test_spmo_comparison.py     # SPMO (S&P momentum) strategy comparison
+python tests/test_kimjje_overheat.py             # Overheat stage analysis
+python tests/test_kimjje_sensitivity.py          # Parameter sensitivity sweeps, plateau width, walk-forward
+python tests/optimize_kimjje_overheat.py         # Multi-period grid search + plateau detection (~30 min)
+python tests/test_plateau_solo.py                # Plateau-center solo strategy comparison
+python tests/test_plateau_vote.py                # Plateau-center vote strategy comparison
+python tests/test_spmo_comparison.py             # SPMO (S&P momentum) strategy comparison
 ```
 
 **Validation scripts:**
 ```bash
-python tests/test_lag_comparison.py      # Quantify look-ahead bias (~2 min)
-python tests/test_walk_forward.py        # In-sample vs out-of-sample comparison (~3 min)
-python tests/test_vol_percentile_fix.py  # Verify expanding→rolling percentile fix
-python tests/fix_part79_lag_mismatch.py  # Generate Part 7-9 correction tables (~10 min)
-python tests/run_part7_8_corrected.py    # Re-run Part 7-8 with lag=1 + Ken French RF (~40 min)
+python tests/test_lag_comparison.py              # Quantify look-ahead bias (~2 min)
+python tests/test_walk_forward.py                # In-sample vs out-of-sample comparison (~3 min)
+python tests/test_vol_percentile_fix.py          # Verify expanding→rolling percentile fix
+python tests/fix_part79_lag_mismatch.py          # Generate Part 7-9 correction tables (~10 min)
+python tests/run_part7_8_corrected.py            # Re-run Part 7-8 with lag=1 + Ken French RF (~40 min)
 ```
 
 **Daily signal generation (production):**
 ```bash
-python daily_signal_generator.py         # Generate today's regime-switching signal → CSV + HTML
-python daily_signal_telegram.py          # Same + Telegram notification with price predictions
+python signals/daily_signal_generator.py         # Generate today's regime-switching signal → CSV + HTML
+python signals/daily_signal_telegram.py          # Same + Telegram notification with price predictions
 ```
 
 **Convenience runners:**
 ```bash
-python run_part12_only.py                # Part 12 only (~15 min)
-python run_parts7to12.py                 # Parts 7-12 (~45 min)
-python run_grid_all_indices.py           # 3-index calibrated grid (~45 min)
+python runners/run_part12_only.py                # Part 12 only (~15 min)
+python runners/run_parts7to12.py                 # Parts 7-12 (~45 min)
+python runners/run_grid_all_indices.py           # 3-index calibrated grid (~45 min)
 ```
 
 ## Code Conventions
 
 - All scripts use a Windows UTF-8 boilerplate at the top (`sys.stdout` wrapping + `warnings.filterwarnings("ignore")`) — preserve this pattern when creating new scripts.
 - Matplotlib uses `Agg` backend (headless, file-only output — no interactive windows).
-- `calibrate_tqqq.py` must run before `leverage_rotation.py` Part 12 (uses calibrated ER=3.5%).
+- `core/calibrate_tqqq.py` must run before `leverage_rotation.py` Part 12 (uses calibrated ER=3.5%).
+- README and most code comments are in Korean.
 
 ## Architecture
 
@@ -127,11 +128,11 @@ The main block (~477-1413) runs 12 analysis parts sequentially, each with a conf
 
 Config presets: `PAPER_CONFIG` (^GSPC TR, 1928-2020, Ken French RF, lag=0), `NASDAQ_LONGRUN_CONFIG` (^IXIC, 1971+, lag=0), `DEFAULT_CONFIG` (^GSPC, 1990+, 2% T-Bill, lag=0).
 
-### optimize_common.py (shared Phase 2 infrastructure)
+### optimization/optimize_common.py (shared Phase 2 infrastructure)
 
 Shared utilities for optimization scripts: `apply_warmup()`, `trim_warmup()`, `run_backtest()`, `get_symmetric_baselines()`, `print_comparison_table()`, `plot_cumulative_comparison()`, `download_ndx_and_rf()`. Common constants: `CALIBRATED_ER=0.035, LEVERAGE=3.0, SIGNAL_LAG=1, COMMISSION=0.002`.
 
-### optimize_regime_grid_v2.py (Phase 3 — production grid search)
+### optimization/optimize_regime_grid_v2.py (Phase 3 — production grid search)
 
 3-phase multi-resolution grid search for regime-switching 6-parameter space:
 1. **Coarse grid**: ~10.6M combos, all MAs precomputed via cumsum, `fast_eval()` with numpy-only Sortino/trades (no pandas per trial)
@@ -142,35 +143,9 @@ Also runs a separate post-dotcom (2003+) grid search. Outputs: `regime_grid_v2_*
 
 ### Daily signal pipeline
 
-- **`daily_signal_generator.py`**: Downloads latest NDX, computes regime-switching signal using "Conservative P1" params, outputs `daily_signals.csv` + `daily_signals.html`. Designed for Windows Task Scheduler (4 PM EST trigger).
-- **`daily_signal_telegram.py`**: Extends above with Telegram notifications + price prediction (binary search to find exact crossover price for signal flip).
-- **`scriptable_widget.js`**: iOS Scriptable widget that displays the daily signal on iPhone home screen, consuming JSON from the signal generator.
-
-### Script dependency graph
-
-```
-leverage_rotation.py (core — all scripts import from here)
-  ├── optimize_common.py (shared Phase 2 infra, imports from above)
-  │     ├── optimize_all_full.py
-  │     └── (archived Phase 1/2 scripts)
-  ├── optimize_regime_grid_v2.py (Phase 3, standalone fast_eval)
-  ├── calibrate_tqqq.py
-  ├── diag_nasdaq.py
-  ├── validate_eulb.py
-  ├── analyze_crises.py
-  ├── daily_signal_generator.py
-  ├── daily_signal_telegram.py
-  ├── lrs_standalone.py               (standalone 4-strategy comparison, self-contained)
-  ├── tests/                          (validation, fix & strategy analysis scripts)
-  │     ├── test_*.py, fix_*.py, run_part7_8_corrected.py
-  │     ├── apply_lag_correction.py
-  │     ├── optimize_kimjje_overheat.py  (overheat param grid search + plateau detection)
-  │     ├── test_kimjje_overheat.py      (overheat stage analysis)
-  │     ├── test_kimjje_sensitivity.py   (parameter sensitivity & walk-forward)
-  │     ├── test_plateau_solo.py, test_plateau_vote.py
-  │     └── test_spmo_comparison.py
-  └── docs/                           (analysis reports & guides)
-```
+- **`signals/daily_signal_generator.py`**: Downloads latest NDX, computes regime-switching signal using "Conservative P1" params, outputs `daily_signals.csv` + `daily_signals.html`. Designed for Windows Task Scheduler (4 PM EST trigger).
+- **`signals/daily_signal_telegram.py`**: Extends above with Telegram notifications + price prediction (binary search to find exact crossover price for signal flip).
+- **`scriptable/`**: iOS Scriptable widget (`scriptable_widget.js`) + signal server (`signal_server.py`) for iPhone home screen display, consuming JSON from the signal generator.
 
 ### lrs_standalone.py (standalone strategy comparison)
 
@@ -182,13 +157,28 @@ Self-contained production strategy comparison script (does not import from `leve
 
 Contains all required functions internally: `download_all_data()`, `backtest_kimjje()`, `calc_metrics()`, `BasicParams` dataclass.
 
+### Script dependency graph
+
+```
+leverage_rotation.py (core — most scripts import from here)
+  ├── optimization/optimize_common.py (shared Phase 2 infra, imports from above)
+  │     └── optimization/optimize_all_full.py
+  ├── optimization/optimize_regime_grid_v2.py (Phase 3, standalone fast_eval)
+  ├── core/calibrate_tqqq.py
+  ├── analysis/diag_nasdaq.py
+  ├── analysis/validate_eulb.py
+  ├── analysis/analyze_crises.py
+  ├── signals/daily_signal_generator.py
+  ├── signals/daily_signal_telegram.py
+  ├── runners/run_part12_only.py, run_parts7to12.py, run_grid_all_indices.py
+  └── tests/ (validation, fix & strategy analysis scripts)
+
+lrs_standalone.py (fully self-contained, does NOT import leverage_rotation.py)
+```
+
 ### archive/ directory
 
-Legacy scripts moved here — superseded by full-period optimization or kept for reference only:
-- Phase 1 train/test split: `optimize_asymmetric.py`, `optimize_penalized.py`, `optimize_walkforward.py`, `optimize_wf_penalized.py`
-- Phase 2 individual: `optimize_vol_adaptive.py`, `optimize_regime.py`, `optimize_vol_regime.py`, `optimize_penalized_full.py`
-- Phase 3 v1: `optimize_regime_grid.py`
-- Analysis helpers: `compare_all_strategies.py`, `clean_metrics.py`, `regime_switching_ensemble.py`, `crisis_mdd_breakdown.py`, `debug_signals.py`, etc.
+Legacy scripts — superseded by full-period optimization or kept for reference only.
 
 ## Critical Domain Concepts
 
@@ -201,16 +191,16 @@ The `signal_lag` parameter is the most important correctness control:
 
 Implementation: `signal.shift(signal_lag)` in `run_lrs()`.
 
-**Part 7-9 use lag=0; Part 10-12 use lag=1.** Part 7-9 results are inflated by 1.46-1.66x. Correction tables exist in `output/Part7_lag_correction_table.csv` and `output/Part8_lag_correction_table.csv`. Part 12 (NDX, lag=1, Ken French RF) is the recommended production baseline. See `docs/LAG_CORRECTION_FINAL_REPORT.md` for full analysis.
+**Part 7-9 use lag=0; Part 10-12 use lag=1.** Part 7-9 results are inflated by 1.46-1.66x. Part 12 (NDX, lag=1, Ken French RF) is the recommended production baseline.
 
 ### Vol Percentile Fix (critical correctness)
 
-Regime-switching signals use a volatility percentile to classify high/low vol regimes. Original code used `expanding().rank(pct=True)` which caused 2008's extreme volatility to permanently warp all future percentiles (COVID 2020 appeared as low-vol because 2008 dominated the expanding window). Fixed to `rolling(252, min_periods=1).rank(pct=True)` — 1-year rolling window so each crisis is recognized as a local extreme. Validated by `tests/test_vol_percentile_fix.py`.
+Regime-switching signals use a volatility percentile to classify high/low vol regimes. Original code used `expanding().rank(pct=True)` which caused 2008's extreme volatility to permanently warp all future percentiles. Fixed to `rolling(252, min_periods=1).rank(pct=True)` — 1-year rolling window so each crisis is recognized as a local extreme.
 
 ### Production Trading Constants
 
 ```python
-CALIBRATED_ER = 0.035   # 3.5% annual expense ratio (from calibrate_tqqq.py)
+CALIBRATED_ER = 0.035   # 3.5% annual expense ratio (from core/calibrate_tqqq.py)
 LEVERAGE = 3.0
 SIGNAL_LAG = 1          # next-day execution (mandatory for KRX, recommended for US)
 COMMISSION = 0.002      # 0.2% per trade
@@ -259,8 +249,7 @@ from leverage_rotation import (
 - `docs/CRITICAL_REVIEW.md` — Detailed code review from financial engineering perspective
 - `docs/VALIDATION_REPORT.md` — Walk-forward and lag comparison validation results
 - `docs/LAG_CORRECTION_FINAL_REPORT.md` — Part 7-9 correction factor analysis
-- `docs/COMPLETION_SUMMARY.md` — Summary of validation work completed
-- `references/signal_optimization_plan.md` — Signal optimization roadmap
+- `docs/OVERHEAT_PLATEAU_ANALYSIS_FINAL.md` — Kim-jje overheat parameter plateau analysis
 - `docs/REGIME_SWITCHING_STRATEGY_REPORT.md` — Regime-switching strategy report
 - `docs/DAILY_SIGNAL_SETUP.md` — Daily signal automation setup guide
 - `docs/TELEGRAM_SCRIPTABLE_SETUP.md` — Telegram + iOS widget setup guide
