@@ -10,11 +10,21 @@
 // 설정
 // ═══════════════════════════════════════════════════════════════
 
-// 1. 파이썬 스크립트 결과를 저장할 URL
-// (아래에서 설명: Google Sheets 또는 자신의 웹서버)
-const DATA_URL = "https://YOUR_SERVER.com/ndx_signal.json";
+// 1. Tailscale IP로 Windows PC의 HTTP 서버에 접근
+// Find your Tailscale IP: tailscale ip -4
+// Then replace "100.x.x.x" with the actual IP
+const DATA_URL = "http://100.x.x.x:8765/ndx_signal.json";
 
-// 또는 로컬 파일 경로 (Mac에서만 가능)
+// Setup Steps:
+// 1. Install Tailscale on both PC and iOS
+// 2. Connect both devices to same Tailscale network
+// 3. Run: python scriptable/update_signal_json.py (generate signal)
+// 4. Run: python scriptable/signal_server.py (start HTTP server)
+// 5. Find PC's Tailscale IP: tailscale ip -4 (Windows) or 'tailscale status' (iOS)
+// 6. Replace "100.x.x.x" below with your PC's Tailscale IP
+// 7. Add this script as widget on iOS home screen
+
+// Or local file path (Mac only):
 // const DATA_PATH = "/Users/user/path/to/output/ndx_signal.json";
 
 // ═══════════════════════════════════════════════════════════════

@@ -1,0 +1,151 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║             iOS Scriptable Widget for NDX Signal — QUICK START              ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+✅ ALL COMPONENTS CREATED AND TESTED
+
+📁 Files Created:
+  ✓ scriptable/update_signal_json.py      — Generates signal JSON (hourly)
+  ✓ scriptable/signal_server.py           — HTTP server (port 8765)
+  ✓ scriptable/start_server.bat           — Manual server startup
+  ✓ scriptable/setup_scheduler.bat        — Task Scheduler setup (Admin required)
+  ✓ scriptable/README.md                  — Complete setup guide
+  ✓ scriptable_widget.js                  — Updated with Tailscale setup
+  ✓ output/ndx_signal.json                — Current signal (auto-generated)
+
+────────────────────────────────────────────────────────────────────────────
+
+🚀 QUICK SETUP (5 Steps)
+
+Step 1: Install Tailscale
+  Windows: https://tailscale.com/download/windows (install & login)
+  iOS: App Store → Tailscale (install & login with same account)
+
+Step 2: Find Your PC's Tailscale IP
+  Windows Command Prompt:
+    C:\> tailscale ip -4
+
+  Output example: 100.67.89.123 ← Remember this!
+
+Step 3: Setup Task Scheduler (Admin Required!)
+  Command Prompt (Run as Administrator):
+    cd C:\Users\anti_\Documents\260224_백테스트\leverage-for-the-long-run
+    scriptable\setup_scheduler.bat
+
+  This creates two tasks:
+    • NDX Signal Updater — Runs hourly (07:00~18:00 ET = 20:00~07:00 KST)
+    • NDX Signal Server  — Starts when you log in
+
+Step 4: Start HTTP Server
+  Command Prompt:
+    python scriptable\signal_server.py
+
+  Keep this window open. Server will now serve JSON on:
+    http://localhost:8765/ndx_signal.json (local testing)
+    http://100.x.x.x:8765/ndx_signal.json  (via Tailscale from iOS)
+
+Step 5: Configure iOS Widget
+  A. Edit scriptable_widget.js (line 16):
+     Change: const DATA_URL = "http://100.x.x.x:8765/ndx_signal.json";
+     To:     const DATA_URL = "http://100.67.89.123:8765/ndx_signal.json";
+     (Use YOUR actual IP from Step 2)
+
+  B. On iOS:
+     • Open Scriptable app
+     • Tap "+" → New Script
+     • Paste entire contents of scriptable_widget.js
+     • Tap "Done" (name it "NDX Signal" or similar)
+
+  C. Add to Home Screen:
+     • Long-press empty area on home screen
+     • Tap "+" → Scriptable
+     • Select "NDX Signal" script
+     • Choose size (Small or Medium recommended)
+     • Tap "Add Widget"
+
+✨ Done! Widget should now show:
+  🟢 BUY or 🔴 HOLD
+  Current price and regime
+  Next signal trigger price
+
+────────────────────────────────────────────────────────────────────────────
+
+🧪 TESTING (Optional)
+
+Test signal generation:
+  python scriptable\update_signal_json.py
+
+Test server locally:
+  • Run: python scriptable\signal_server.py
+  • Browser: http://localhost:8765/ndx_signal.json
+  • Should show JSON with all signal data
+
+Check Task Scheduler:
+  schtasks /query /tn "NDX Signal*" /fo table
+
+────────────────────────────────────────────────────────────────────────────
+
+📊 HOW IT WORKS
+
+Windows PC (Every hour during 07:00~18:00 ET = 20:00~07:00 KST):
+  1. Task Scheduler runs: python scriptable/update_signal_json.py
+  2. Downloads latest NDX data
+  3. Calculates regime-switching signal
+  4. Saves to: output/ndx_signal.json
+
+iOS (Over Tailscale VPN):
+  1. Scriptable widget fetches: http://100.67.89.123:8765/ndx_signal.json
+  2. Displays signal, price, regime, next trigger
+  3. Auto-refreshes when you interact with it
+
+No internet required! All communication is local via Tailscale.
+
+────────────────────────────────────────────────────────────────────────────
+
+⚠️ IMPORTANT NOTES
+
+• Run setup_scheduler.bat ONCE (as Administrator)
+• Keep signal_server.py running (minimize window if needed)
+• Update scriptable_widget.js DATA_URL with YOUR Tailscale IP
+• Tailscale must be running on both Windows and iOS
+• Widget updates hourly during market hours (07:00~18:00 ET)
+
+────────────────────────────────────────────────────────────────────────────
+
+❓ TROUBLESHOOTING
+
+Widget shows "⚠️ No Data":
+  1. Is Tailscale running on iOS? (Tailscale app → check connected)
+  2. Is HTTP server running? (python scriptable\signal_server.py)
+  3. Is JSON file updating? (check output\ndx_signal.json timestamp)
+  4. Is DATA_URL correct in scriptable_widget.js? (should be your IP)
+
+Can't reach Windows from iOS:
+  • Make sure Tailscale is logged in on both devices with SAME account
+  • Check Windows firewall: allow Python on port 8765
+  • Test: ping 100.67.89.123 from another device
+
+Task Scheduler not running:
+  • Re-run: scriptable\setup_scheduler.bat (as Admin)
+  • Check: schtasks /query /tn "NDX Signal*"
+
+JSON not generating:
+  • Test manually: python scriptable\update_signal_json.py
+  • Check output: type output\ndx_signal.json
+
+────────────────────────────────────────────────────────────────────────────
+
+📖 MORE INFORMATION
+
+For detailed setup and troubleshooting, see:
+  • scriptable/README.md         — Complete guide (setup, troubleshooting, etc)
+  • SCRIPTABLE_IMPLEMENTATION.md — Technical details
+  • scriptable_widget.js         — iOS widget code (needs DATA_URL update)
+
+────────────────────────────────────────────────────────────────────────────
+
+✅ You're ready to go! Follow the 5 quick steps above to get started.
+
+Questions? Check scriptable/README.md for detailed help.
+
+Updated: 2026-03-03
