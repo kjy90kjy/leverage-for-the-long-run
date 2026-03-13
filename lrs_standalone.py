@@ -1,10 +1,9 @@
 """
 LRS Standalone — 검증된 프로덕션 전략 비교 (단일 파일)
 
-전략 1: Regime-Switching Dual MA (Conservative P1)
-전략 2: 김째 S1 — TQQQ 200MA 크로스 (오리지널)
-전략 3: 김째 S2 — 변동성+SPY 필터+과열감량+손절+TP10 (spy_bear_cap=0%)
-전략 4: 김째 S3 — S2와 동일하되 SPY 약세 시 10% 유지 (spy_bear_cap=10%)
+전략 1: 200MA — TQQQ 200MA 3일 확인 돌파 매수 / 즉시 이탈 매도
+전략 2: DualMA(3/161) — QQQ 3일/161일 이평선 골든크로스
+전략 3: Kim — 김째매매법 풀 시스템 (변동성+SPY 필터+과열감량+손절+TP10)
 
 실행:
     python lrs_standalone.py
@@ -46,20 +45,13 @@ SIGNAL_LAG = 1          # 익일 집행 (필수)
 COMMISSION = 0.002      # 0.2% per trade
 CALIBRATED_ER = 0.035   # 합성 TQQQ 연간 비용 (calibrate_tqqq.py 결과)
 
-# Conservative P1 — regime-switching 최적 파라미터
-REGIME_PARAMS = dict(
-    fast_low=12, slow_low=237,
-    fast_high=6, slow_high=229,
-    vol_lookback=49, vol_threshold_pct=57.3,
-)
-
 # TQQQ 200일선 워밍업 필요 → 2011-01-01부터 비교 시작
 COMPARE_START = "2011-01-01"
 
 
 @dataclass(frozen=True)
 class BasicParams:
-    """김째매매법 Pine v6 파라미터 (S2 기본값)."""
+    """김째매매법 Pine v6 파라미터 (Kim 전략 기본값)."""
     rsi_len: int = 14
     rsi_reentry_thr: float = 43.0
     vol_threshold: float = 0.059
@@ -86,7 +78,7 @@ class BasicParams:
     spy_enter: float = 100.25
     spy_exit: float = 97.75
     spy_confirm_days: int = 1
-    spy_bear_cap: float = 0.0      # S2=0.0 (하락 시 전량 청산)
+    spy_bear_cap: float = 0.0      # 하락 시 전량 청산
     use_tp10: bool = True
     tp10_trigger: float = 0.10
     tp10_cap: float = 0.95
@@ -201,56 +193,7 @@ def download_all_data(mode: str = "real") -> dict:
 
 
 # ══════════════════════════════════════════════════════════════
-# [4] Regime-Switching Dual MA 시그널
-# ══════════════════════════════════════════════════════════════
-
-def signal_regime_switching_dual_ma(price: pd.Series,
-                                     fast_low: int, slow_low: int,
-                                     fast_high: int, slow_high: int,
-                                     vol_lookback: int = 60,
-                                     vol_threshold_pct: float = 50.0) -> pd.Series:
-    """Regime-switching dual MA: 변동성 레짐별 다른 MA 쌍 사용.
-
-    Low vol: SMA(fast_low) > SMA(slow_low) → 1
-    High vol: SMA(fast_high) > SMA(slow_high) → 1
-    """
-    daily_ret = price.pct_change()
-    rolling_vol = daily_ret.rolling(vol_lookback).std() * np.sqrt(252)
-
-    # Rolling percentile (252일 = 1년) — 과거 극단값 왜곡 방지
-    vol_pct = rolling_vol.rolling(252, min_periods=1).rank(pct=True) * 100
-    high_vol = (vol_pct >= vol_threshold_pct).values
-
-    # 4개 MA 사전 계산
-    ma_fast_low = price.rolling(fast_low).mean().values
-    ma_slow_low = price.rolling(slow_low).mean().values
-    ma_fast_high = price.rolling(fast_high).mean().values
-    ma_slow_high = price.rolling(slow_high).mean().values
-
-    n = len(price)
-    sig = np.zeros(n, dtype=int)
-    state = 0
-    warmup = max(slow_low, slow_high, vol_lookback)
-    for i in range(n):
-        if i < warmup or np.isnan(ma_slow_low[i]) or np.isnan(ma_slow_high[i]):
-            sig[i] = 0
-            continue
-        if high_vol[i]:
-            buy_cond = ma_fast_high[i] > ma_slow_high[i]
-            sell_cond = ma_fast_high[i] <= ma_slow_high[i]
-        else:
-            buy_cond = ma_fast_low[i] > ma_slow_low[i]
-            sell_cond = ma_fast_low[i] <= ma_slow_low[i]
-        if state == 0 and buy_cond:
-            state = 1
-        elif state == 1 and sell_cond:
-            state = 0
-        sig[i] = state
-    return pd.Series(sig, index=price.index)
-
-
-# ══════════════════════════════════════════════════════════════
-# [5] 김째매매법 헬퍼 함수
+# [4] 김째매매법 헬퍼 함수
 # ══════════════════════════════════════════════════════════════
 
 def code_weight(code: int) -> float:
@@ -701,8 +644,11 @@ def compute_kimjje_strategy(
     return codes, weights
 
 
-def compute_s1_tqqq_200ma_cross(tqqq_close: np.ndarray) -> tuple:
-    """김째 S1: TQQQ 200일선 상/하향 돌파 → 100%/0% 전환.
+def compute_200ma_cross(tqqq_close: np.ndarray) -> tuple:
+    """200MA 전략: 3일 연속 상향돌파 확인 매수, 즉시 하향이탈 매도.
+
+    매수: TQQQ > 200MA가 3거래일 연속 유지 시, 3일차 종가에 매수
+    매도: TQQQ < 200MA 즉시 매도 (확인 없음)
 
     Returns: (codes, weights) — 각각 np.ndarray
     """
@@ -711,26 +657,29 @@ def compute_s1_tqqq_200ma_cross(tqqq_close: np.ndarray) -> tuple:
     code = np.zeros(n, dtype=int)
     weight = np.zeros(n, dtype=float)
     in_pos = False
+    above_count = 0  # 연속 상향돌파 일수
 
     for i in range(n):
         if np.isnan(tqqq_close[i]) or np.isnan(t_ma200[i]):
             in_pos = False
+            above_count = 0
             code[i] = 0
             weight[i] = 0.0
             continue
 
-        if i == 0 or np.isnan(tqqq_close[i - 1]) or np.isnan(t_ma200[i - 1]):
-            code[i] = 2 if in_pos else 0
-            weight[i] = 1.0 if in_pos else 0.0
-            continue
+        above = tqqq_close[i] > t_ma200[i]
 
-        cross_up = (tqqq_close[i - 1] <= t_ma200[i - 1]) and (tqqq_close[i] > t_ma200[i])
-        cross_dn = (tqqq_close[i - 1] >= t_ma200[i - 1]) and (tqqq_close[i] < t_ma200[i])
-
-        if (not in_pos) and cross_up:
-            in_pos = True
-        elif in_pos and cross_dn:
-            in_pos = False
+        if not in_pos:
+            if above:
+                above_count += 1
+                if above_count >= 3:
+                    in_pos = True
+            else:
+                above_count = 0
+        else:
+            if not above:
+                in_pos = False
+                above_count = 0
 
         code[i] = 2 if in_pos else 0
         weight[i] = 1.0 if in_pos else 0.0
@@ -742,34 +691,12 @@ def compute_s1_tqqq_200ma_cross(tqqq_close: np.ndarray) -> tuple:
 # [7] 백테스트 엔진
 # ══════════════════════════════════════════════════════════════
 
-def backtest_regime(tqqq: pd.Series, qqq: pd.Series, rf: pd.Series) -> tuple:
-    """Regime-Switching 전략 백테스트 (실제 TQQQ 수익률).
-
-    Returns: (cum, signal) — 누적 수익률, 시그널 시리즈
-    """
-    sig_raw = signal_regime_switching_dual_ma(qqq, **REGIME_PARAMS)
-    sig = sig_raw.shift(SIGNAL_LAG).fillna(0).astype(int)
-
-    tqqq_ret = tqqq.pct_change().fillna(0)
-    rf_daily = rf.reindex(tqqq_ret.index, method="ffill").fillna(0)
-
-    strat_ret = sig * tqqq_ret + (1 - sig) * rf_daily
-
-    # 수수료: 시그널 변동 시 0.2%
-    trades = sig.diff().abs().fillna(0)
-    strat_ret = strat_ret - trades * COMMISSION
-
-    cum = (1 + strat_ret).cumprod()
-    cum.iloc[0] = 1.0
-    return cum, sig_raw
-
-
-def backtest_s1(tqqq: pd.Series, rf: pd.Series) -> tuple:
-    """김째 S1: TQQQ 200MA 크로스 백테스트.
+def backtest_200ma(tqqq: pd.Series, rf: pd.Series) -> tuple:
+    """200MA 전략: 3일 확인 매수 백테스트.
 
     Returns: (cum, weight_series)
     """
-    _, w = compute_s1_tqqq_200ma_cross(tqqq.values.astype(float))
+    _, w = compute_200ma_cross(tqqq.values.astype(float))
     weight_series = pd.Series(w, index=tqqq.index)
     weight_lagged = weight_series.shift(SIGNAL_LAG).fillna(0)
 
@@ -785,13 +712,35 @@ def backtest_s1(tqqq: pd.Series, rf: pd.Series) -> tuple:
     return cum, weight_series
 
 
+def backtest_dual_ma(tqqq: pd.Series, qqq: pd.Series, rf: pd.Series,
+                      fast: int = 3, slow: int = 161) -> tuple:
+    """NDX(QQQ) Dual MA 크로스 전략 백테스트.
+
+    QQQ fast MA > slow MA → TQQQ 100%, 아래 → 현금.
+    Returns: (cum, signal_series)
+    """
+    ma_fast = qqq.rolling(fast, min_periods=fast).mean()
+    ma_slow = qqq.rolling(slow, min_periods=slow).mean()
+    sig_raw = (ma_fast > ma_slow).astype(int)
+    sig = sig_raw.shift(SIGNAL_LAG).fillna(0).astype(int)
+
+    tqqq_ret = tqqq.pct_change().fillna(0)
+    rf_daily = rf.reindex(tqqq_ret.index, method="ffill").fillna(0)
+
+    strat_ret = sig * tqqq_ret + (1 - sig) * rf_daily
+    trades = sig.diff().abs().fillna(0)
+    strat_ret = strat_ret - trades * COMMISSION
+
+    cum = (1 + strat_ret).cumprod()
+    cum.iloc[0] = 1.0
+    return cum, sig_raw
+
+
 def backtest_kimjje(tqqq: pd.Series, qqq: pd.Series, spy: pd.Series,
                      rf: pd.Series, spy_bear_cap: float = 0.0,
                      params: BasicParams = None) -> tuple:
-    """김째매매법 백테스트 (실제 TQQQ 수익률, 비중 비례 수수료).
+    """김째매매법 (Kim) 백테스트 (실제 TQQQ 수익률, 비중 비례 수수료).
 
-    spy_bear_cap: 0.0=S2(전량청산), 0.10=S3(10% 유지). params 미지정 시 사용.
-    params: 직접 BasicParams를 전달하면 spy_bear_cap 무시.
     Returns: (cum, weights) — 누적 수익률, 비중 시리즈
     """
     if params is None:
@@ -898,10 +847,9 @@ def plot_comparison(curves: dict, title: str, fname: str):
         pass
 
     colors = {
-        "Regime-Switching": "#2196F3",
-        "김째 S1 (200MA)": "#8BC34A",
-        "김째 S2": "#FF5722",
-        "김째 S3": "#FF9800",
+        "200MA": "#2196F3",
+        "DualMA(3/161)": "#8BC34A",
+        "Kim": "#FF5722",
         "TQQQ B&H": "#9E9E9E",
     }
     styles = {
@@ -950,10 +898,10 @@ def plot_comparison(curves: dict, title: str, fname: str):
 # [10] 오늘의 시그널
 # ══════════════════════════════════════════════════════════════
 
-def show_todays_signal(data: dict, regime_sig: pd.Series,
-                        s1_weights: pd.Series,
-                        s2_weights: pd.Series,
-                        s3_weights: pd.Series):
+def show_todays_signal(data: dict,
+                        ma200_weights: pd.Series,
+                        dual_sig: pd.Series,
+                        kim_weights: pd.Series):
     """모든 전략의 최신 시그널 상태를 출력."""
     last_date = data["qqq"].index[-1].date()
     qqq_price = data["qqq"].iloc[-1]
@@ -967,22 +915,18 @@ def show_todays_signal(data: dict, regime_sig: pd.Series,
     print(f"  TQQQ: ${tqqq_price:.2f}")
     print(f"  SPY:  ${spy_price:.2f}")
 
-    # Regime-Switching
-    r_sig = regime_sig.iloc[-1]
-    r_status = "매수 (TQQQ 100%)" if r_sig == 1 else "관망 (현금)"
-    print(f"\n  [전략 1] Regime-Switching: {r_status}")
+    # 200MA
+    ma_w = ma200_weights.iloc[-1]
+    print(f"\n  [전략 1] 200MA:            TQQQ {ma_w * 100:.0f}%")
 
-    # 김째 S1
-    s1_w = s1_weights.iloc[-1]
-    print(f"  [전략 2] 김째 S1 (200MA):  TQQQ {s1_w * 100:.0f}%")
+    # DualMA(3/161)
+    d_sig = dual_sig.iloc[-1]
+    d_status = "매수 (TQQQ 100%)" if d_sig == 1 else "관망 (현금)"
+    print(f"  [전략 2] DualMA(3/161):    {d_status}")
 
-    # 김째 S2
-    s2_w = s2_weights.iloc[-1]
-    print(f"  [전략 3] 김째 S2:          TQQQ {s2_w * 100:.0f}%")
-
-    # 김째 S3
-    s3_w = s3_weights.iloc[-1]
-    print(f"  [전략 4] 김째 S3:          TQQQ {s3_w * 100:.0f}%")
+    # Kim
+    kim_w = kim_weights.iloc[-1]
+    print(f"  [전략 3] Kim:              TQQQ {kim_w * 100:.0f}%")
 
     print(f"\n  → 모두 내일 적용 (lag=1)")
     print()
@@ -998,30 +942,25 @@ def run_comparison(data: dict, compare_start: str, label: str, chart_fname: str)
     print(f"백테스트 — {label}")
     print("=" * 60)
 
-    cum_regime, sig_regime = backtest_regime(data["tqqq"], data["qqq"], data["rf"])
-    print("  [1/5] Regime-Switching")
+    cum_200ma, w_200ma = backtest_200ma(data["tqqq"], data["rf"])
+    print("  [1/4] 200MA")
 
-    cum_s1, w_s1 = backtest_s1(data["tqqq"], data["rf"])
-    print("  [2/5] 김째 S1 (200MA)")
+    cum_dual, sig_dual = backtest_dual_ma(data["tqqq"], data["qqq"], data["rf"])
+    print("  [2/4] DualMA(3/161)")
 
-    cum_s2, w_s2 = backtest_kimjje(data["tqqq"], data["qqq"], data["spy"], data["rf"],
-                                    spy_bear_cap=0.0)
-    print("  [3/5] 김째 S2")
-
-    cum_s3, w_s3 = backtest_kimjje(data["tqqq"], data["qqq"], data["spy"], data["rf"],
-                                    spy_bear_cap=0.10)
-    print("  [4/5] 김째 S3")
+    cum_kim, w_kim = backtest_kimjje(data["tqqq"], data["qqq"], data["spy"], data["rf"],
+                                      spy_bear_cap=0.0)
+    print("  [3/4] Kim")
 
     cum_bh = backtest_buy_and_hold(data["tqqq"])
-    print("  [5/5] TQQQ B&H")
+    print("  [4/4] TQQQ B&H")
 
     # 비교 기간 트림
-    start_mask = cum_regime.index >= compare_start
+    start_mask = cum_200ma.index >= compare_start
     all_cums = {
-        "Regime-Switching": cum_regime,
-        "김째 S1 (200MA)": cum_s1,
-        "김째 S2": cum_s2,
-        "김째 S3": cum_s3,
+        "200MA": cum_200ma,
+        "DualMA(3/161)": cum_dual,
+        "Kim": cum_kim,
         "TQQQ B&H": cum_bh,
     }
     trimmed = {}
@@ -1030,7 +969,7 @@ def run_comparison(data: dict, compare_start: str, label: str, chart_fname: str)
         trimmed[name] = c / c.iloc[0]
 
     rf_t = data["rf"].loc[start_mask]
-    period_str = f"{trimmed['Regime-Switching'].index[0].date()} → {trimmed['Regime-Switching'].index[-1].date()}"
+    period_str = f"{trimmed['200MA'].index[0].date()} → {trimmed['200MA'].index[-1].date()}"
     print(f"\n  비교 기간: {period_str}")
 
     # 메트릭
@@ -1043,10 +982,9 @@ def run_comparison(data: dict, compare_start: str, label: str, chart_fname: str)
         metrics[name] = calc_metrics(cum, rf_t)
 
     all_sigs = {
-        "Regime-Switching": (sig_regime.loc[start_mask], True),
-        "김째 S1 (200MA)": (w_s1.loc[start_mask], False),
-        "김째 S2": (w_s2.loc[start_mask], False),
-        "김째 S3": (w_s3.loc[start_mask], False),
+        "200MA": (w_200ma.loc[start_mask], False),
+        "DualMA(3/161)": (sig_dual.loc[start_mask], True),
+        "Kim": (w_kim.loc[start_mask], False),
         "TQQQ B&H": (None, True),
     }
     for name, (sig, is_bin) in all_sigs.items():
@@ -1065,7 +1003,7 @@ def run_comparison(data: dict, compare_start: str, label: str, chart_fname: str)
     # 차트
     plot_comparison(trimmed, f"{label} ({period_str})", chart_fname)
 
-    return sig_regime, w_s1, w_s2, w_s3
+    return w_200ma, sig_dual, w_kim
 
 
 if __name__ == "__main__":
@@ -1099,12 +1037,12 @@ if __name__ == "__main__":
     run_comparison(data_synth, compare_start=COMPARE_START,
                    label="합성 3x QQQ (15년)",
                    chart_fname="lrs_standalone_qqq_15y.png")
-    sig_regime, w_s1, w_s2, w_s3 = run_comparison(
+    w_200ma, sig_dual, w_kim = run_comparison(
         data_real, compare_start=COMPARE_START,
         label="실제 TQQQ",
         chart_fname="lrs_standalone_comparison.png")
 
     # ── 오늘의 시그널 (실제 데이터 기준) ──
-    show_todays_signal(data_real, sig_regime, w_s1, w_s2, w_s3)
+    show_todays_signal(data_real, w_200ma, sig_dual, w_kim)
 
     print("완료!")

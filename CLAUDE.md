@@ -149,13 +149,15 @@ Also runs a separate post-dotcom (2003+) grid search. Outputs: `regime_grid_v2_*
 
 ### lrs_standalone.py (standalone strategy comparison)
 
-Self-contained production strategy comparison script (does not import from `leverage_rotation.py`). Compares 4 strategies across 3 data modes (real TQQQ, synthetic QQQ-based, synthetic NDX-based):
-- **Regime-Switching Dual MA**: Conservative P1 parameters from grid search
-- **Kim-jje S1**: Simple TQQQ 200-day MA crossover
-- **Kim-jje S2**: Full system with vol filter, SPY filter, overheat detection, stop-loss, and 10% take-profit
-- **Kim-jje S3**: S2 variant with `spy_bear_cap=10%`
+Self-contained production strategy comparison script (does not import from `leverage_rotation.py`). Compares 3 strategies + benchmark across 6 period/data combinations (NDX 40y, NDX 26y, QQQ 26y, NDX 15y, QQQ 15y, real TQQQ 15y):
+- **200MA**: TQQQ 200-day MA crossover with 3-day confirmation buy (immediate sell on breakdown)
+- **DualMA(3/161)**: QQQ 3/161 MA golden cross → TQQQ 100% / cash
+- **Kim**: Full Kim-jje system (27 params: vol filter, SPY filter, 4-stage overheat reduction, stop-loss, TP10)
+- **TQQQ B&H**: Benchmark
 
-Contains all required functions internally: `download_all_data()`, `backtest_kimjje()`, `calc_metrics()`, `BasicParams` dataclass.
+Removed strategies (2026-03-13): Regime-Switching (underperformed in all 6 periods), S3 (redundant). See `docs/STRATEGY_DECISION_LOG.md`.
+
+Contains all required functions internally: `download_all_data()`, `backtest_kimjje()`, `backtest_200ma()`, `backtest_dual_ma()`, `calc_metrics()`, `BasicParams` dataclass.
 
 ### Script dependency graph
 
@@ -247,10 +249,11 @@ from leverage_rotation import (
 
 ## Documentation References
 
+- `docs/STRATEGY_DECISION_LOG.md` — Strategy comparison results and removal decisions (2026-03-13)
 - `docs/CRITICAL_REVIEW.md` — Detailed code review from financial engineering perspective
 - `docs/VALIDATION_REPORT.md` — Walk-forward and lag comparison validation results
 - `docs/LAG_CORRECTION_FINAL_REPORT.md` — Part 7-9 correction factor analysis
 - `docs/OVERHEAT_PLATEAU_ANALYSIS_FINAL.md` — Kim-jje overheat parameter plateau analysis
-- `docs/REGIME_SWITCHING_STRATEGY_REPORT.md` — Regime-switching strategy report
+- `docs/REGIME_SWITCHING_STRATEGY_REPORT.md` — Regime-switching strategy report (archived — strategy removed)
 - `docs/DAILY_SIGNAL_SETUP.md` — Daily signal automation setup guide
 - `docs/TELEGRAM_SCRIPTABLE_SETUP.md` — Telegram + iOS widget setup guide
