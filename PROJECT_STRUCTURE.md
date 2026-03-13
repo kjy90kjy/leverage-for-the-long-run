@@ -29,11 +29,17 @@
 - daily_signal_generator.py - 일일 신호 생성 (CSV + HTML)
 - daily_signal_telegram.py - Telegram 알림 + 예측
 
-### Tests (검증)
-**위치**: `/tests/`
-- test_*.py - 각종 검증 테스트
-- optimize_kimjje_*.py - 김째 전략 파라미터 최적화
-- overheat_plateau_optuna.py - 과열 고원지대 탐색
+### Validation (검증 & 보정)
+**위치**: `/validation/`
+- test_lag_comparison.py, test_walk_forward.py, test_vol_percentile_fix.py - 정확성 검증
+- validate_original_strategy.py - 원본 파라미터 walk-forward
+- fix_part79_lag_mismatch.py, run_part7_8_corrected.py, apply_lag_correction.py - Part 7-9 보정
+
+### Experiments (시그널 실험)
+**위치**: `/experiments/`
+- test_vote_hysteresis.py, test_hybrid_entry_exit.py - 시그널 게이트 실험
+- test_plateau_solo.py, test_plateau_vote.py - plateau 전략 실험
+- test_macro_regime.py - 매크로 레짐 실험
 
 ### Convenience Scripts (편의)
 **위치**: `/runners/`
@@ -134,7 +140,7 @@ python run_parts7to12.py          # 45분
 python optimize_regime_grid_v2.py
 
 # 김째 전략 파라미터 최적화 (30분)
-python tests/optimize_kimjje_overheat.py
+python optimization/optimize_kimjje_overheat.py
 ```
 
 ### 실거래 자동화

@@ -203,7 +203,7 @@ if q_ma3 > q_ma161:  # 기본 신호
 ## 📚 참고 자료
 
 - 상세 CSV: `output/new_analysis/overheat_plateau_20260303_225937.csv`
-- 스크립트: `tests/overheat_plateau_optuna.py`
+- 스크립트: `optimization/overheat_plateau_optuna.py`
 - 관련 문서: 
   - `REGIME_SWITCHING_STRATEGY_REPORT.md` (전략 상세)
   - `VALIDATION_REPORT.md` (Walk-forward 검증)

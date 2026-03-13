@@ -10,7 +10,7 @@ Model A: 2-Stage (4 params) — ~384 combos
 Model B: 4-Stage Structured (5 params) — ~11,520 combos
 
 실행:
-    python tests/optimize_kimjje_overheat.py
+    python optimization/optimize_kimjje_overheat.py
 """
 
 import sys

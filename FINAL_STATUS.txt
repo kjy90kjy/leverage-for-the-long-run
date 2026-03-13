@@ -15,7 +15,8 @@ Organized Folders:
 ├── optimization/               파라미터 탐색 (optimize_all_full, optimize_regime_grid_v2)
 ├── signals/                    실거래 자동화 (daily_signal_generator, telegram)
 ├── runners/                    편의 실행 스크립트 (run_part12_only, run_parts7to12, run_grid)
-├── tests/                      검증 & 최적화 (overheat_plateau_optuna, test_kimjje_*, etc)
+├── validation/                 검증 & 보정 (test_lag_comparison, test_walk_forward, etc)
+├── experiments/                시그널 조합 실험 (vote_hysteresis, hybrid_entry_exit, etc)
 ├── archive/                    레거시 코드 (Phase 1/2/3 v1)
 └── references/                 참고 자료
 
@@ -138,7 +139,7 @@ output/
 
 최적화 (고급):
   python optimization/optimize_regime_grid_v2.py  (12분)
-  python tests/overheat_plateau_optuna.py          (25분)
+  python optimization/overheat_plateau_optuna.py    (25분)
 
 실거래:
   python signals/daily_signal_generator.py  (일일 신호)

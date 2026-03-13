@@ -8,7 +8,7 @@
 4. 원본과 비교
 
 실행:
-    python tests/overheat_plateau_optuna.py
+    python optimization/overheat_plateau_optuna.py
 """
 
 import sys

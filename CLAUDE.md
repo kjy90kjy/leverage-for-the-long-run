@@ -40,9 +40,9 @@ python optimization/optimize_regime_grid_v2.py   # Dense grid (step 5/10/5, ~10.
 **Crisis analysis & signal experiments:**
 ```bash
 python analysis/analyze_crises.py                # 9 major NDX crises, 5 strategies
-python tests/test_vote_hysteresis.py             # Vote gate (AND/Hysteresis/OR) comparison
-python tests/test_macro_regime.py                # Macro regime layer testing
-python tests/test_hybrid_entry_exit.py           # Hybrid entry/exit testing
+python experiments/test_vote_hysteresis.py       # Vote gate (AND/Hysteresis/OR) comparison
+python experiments/test_macro_regime.py          # Macro regime layer testing
+python experiments/test_hybrid_entry_exit.py     # Hybrid entry/exit testing
 ```
 
 **Standalone strategy comparison (production):**
@@ -52,21 +52,21 @@ python lrs_standalone.py                         # 4-strategy comparison across 
 
 **Kim-jje strategy analysis:**
 ```bash
-python tests/test_kimjje_overheat.py             # Overheat stage analysis
-python tests/test_kimjje_sensitivity.py          # Parameter sensitivity sweeps, plateau width, walk-forward
-python tests/optimize_kimjje_overheat.py         # Multi-period grid search + plateau detection (~30 min)
-python tests/test_plateau_solo.py                # Plateau-center solo strategy comparison
-python tests/test_plateau_vote.py                # Plateau-center vote strategy comparison
-python tests/test_spmo_comparison.py             # SPMO (S&P momentum) strategy comparison
+python analysis/test_kimjje_overheat.py             # Overheat stage analysis
+python analysis/test_kimjje_sensitivity.py          # Parameter sensitivity sweeps, plateau width, walk-forward
+python optimization/optimize_kimjje_overheat.py     # Multi-period grid search + plateau detection (~30 min)
+python experiments/test_plateau_solo.py              # Plateau-center solo strategy comparison
+python experiments/test_plateau_vote.py              # Plateau-center vote strategy comparison
+python analysis/test_spmo_comparison.py              # SPMO (S&P momentum) strategy comparison
 ```
 
 **Validation scripts:**
 ```bash
-python tests/test_lag_comparison.py              # Quantify look-ahead bias (~2 min)
-python tests/test_walk_forward.py                # In-sample vs out-of-sample comparison (~3 min)
-python tests/test_vol_percentile_fix.py          # Verify expanding→rolling percentile fix
-python tests/fix_part79_lag_mismatch.py          # Generate Part 7-9 correction tables (~10 min)
-python tests/run_part7_8_corrected.py            # Re-run Part 7-8 with lag=1 + Ken French RF (~40 min)
+python validation/test_lag_comparison.py         # Quantify look-ahead bias (~2 min)
+python validation/test_walk_forward.py           # In-sample vs out-of-sample comparison (~3 min)
+python validation/test_vol_percentile_fix.py     # Verify expanding→rolling percentile fix
+python validation/fix_part79_lag_mismatch.py     # Generate Part 7-9 correction tables (~10 min)
+python validation/run_part7_8_corrected.py       # Re-run Part 7-8 with lag=1 + Ken French RF (~40 min)
 ```
 
 **Daily signal generation (production):**
@@ -145,7 +145,7 @@ Also runs a separate post-dotcom (2003+) grid search. Outputs: `regime_grid_v2_*
 
 - **`signals/daily_signal_generator.py`**: Downloads latest NDX, computes regime-switching signal using "Conservative P1" params, outputs `daily_signals.csv` + `daily_signals.html`. Designed for Windows Task Scheduler (4 PM EST trigger).
 - **`signals/daily_signal_telegram.py`**: Extends above with Telegram notifications + price prediction (binary search to find exact crossover price for signal flip).
-- **`scriptable/`**: iOS Scriptable widget (`scriptable_widget.js`) + signal server (`signal_server.py`) for iPhone home screen display, consuming JSON from the signal generator.
+- **`scriptable/`**: iOS Scriptable widget (`scriptable_widget.js`) + signal server (`signal_server.py`) + Kim-jje S2 JSON updater (`update_signal_json.py`) for iPhone home screen display. Includes `.bat` helpers for Windows Task Scheduler.
 
 ### lrs_standalone.py (standalone strategy comparison)
 
@@ -171,7 +171,8 @@ leverage_rotation.py (core — most scripts import from here)
   ├── signals/daily_signal_generator.py
   ├── signals/daily_signal_telegram.py
   ├── runners/run_part12_only.py, run_parts7to12.py, run_grid_all_indices.py
-  └── tests/ (validation, fix & strategy analysis scripts)
+  ├── validation/ (lag/walk-forward tests, Part 7-9 corrections)
+  └── experiments/ (signal combination experiments: vote, hybrid, plateau, macro)
 
 lrs_standalone.py (fully self-contained, does NOT import leverage_rotation.py)
 ```

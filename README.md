@@ -79,10 +79,13 @@ python signals/daily_signal_telegram.py   # Telegram 알림
 │   ├── run_parts7to12.py
 │   └── run_grid_all_indices.py
 │
-├── 📂 tests/                         ← 검증 & 최적화
-│   ├── overheat_plateau_optuna.py   ← 과열 파라미터 분석
-│   ├── test_kimjje_*.py
-│   └── test_*.py
+├── 📂 validation/                     ← 검증 & 보정
+│   ├── test_lag_comparison.py       ← look-ahead bias 검증
+│   └── test_walk_forward.py         ← walk-forward 검증
+│
+├── 📂 experiments/                    ← 시그널 조합 실험
+│   ├── test_vote_hysteresis.py
+│   └── test_plateau_*.py
 │
 ├── 📂 docs/                          ← 분석 보고서 📌 필독
 │   ├── OVERHEAT_PLATEAU_ANALYSIS_FINAL.md  ← 최신 분석 결과

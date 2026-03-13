@@ -4,7 +4,7 @@
 핵심 질문: 현재 파라미터가 넓은 고원(plateau) 위인가, 뾰족한 봉우리(peak) 위인가?
 
 실행:
-    python tests/test_kimjje_sensitivity.py
+    python analysis/test_kimjje_sensitivity.py
 """
 
 import sys

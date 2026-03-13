@@ -8,7 +8,7 @@
 5. 다른 자산 대용 테스트 (보편성 검증)
 
 실행:
-    python tests/test_kimjje_overheat.py
+    python analysis/test_kimjje_overheat.py
 """
 
 import sys
