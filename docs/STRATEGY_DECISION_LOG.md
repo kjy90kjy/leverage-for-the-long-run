@@ -1,6 +1,53 @@
 # 전략 비교 및 결정 기록
 
-**날짜**: 2026-03-13
+---
+
+## [2026-03-13] Ensemble 전략 추가, Kim+Dip 제거
+
+**대상**: `lrs_standalone_v2.py`
+
+### 추가: Ensemble (Plan A)
+
+Kim과 Snowball의 알파 가중 블렌드 전략.
+
+- `EnsembleParams` 데이터클래스: `alpha=0.5`, `kim_params`, `snow_params`
+- `compute_ensemble_strategy()`: `alpha × Kim + (1-alpha) × Snowball` 가중치 → 0~1 클리핑
+- `backtest_ensemble()`: lag=1, COMMISSION=0.002, 세후 적용
+- 플롯 색상: 보라색 `#9C27B0`
+- `show_todays_signal()`에 `[전략 5] Ensemble` 추가
+
+### 제거: Kim+Dip (Plan B — 실패)
+
+40년 백테스트에서 MDD -99.5%로 치명적 실패 → 전량 제거.
+
+- `KimDipParams`, `compute_kim_dip_strategy()`, `backtest_kim_dip()` 삭제
+- 모든 Kim+Dip 참조 (plot, signal, run_comparison, main) 삭제
+
+### Ensemble 성과 (세후)
+
+| 기간 | CAGR | Sharpe | Sortino | MDD | 비고 |
+|------|-----:|------:|-------:|----:|------|
+| 합성 NDX 40년 | 18.9% | 0.62 | — | -51.9% | **최고 Sharpe, 최저 MDD (활성전략 중)** |
+| Post-dotcom | 29.4% | 0.90 | — | -47.1% | **최저 MDD** |
+| 실제 TQQQ 15년 | 46.0% | 1.24 | — | -39.8% | **최고 Sharpe** |
+
+### 최종 구성 변경
+
+`run_comparison()`: 6전략 [1/6]~[6/6], 반환값 5개 (w_200ma, sig_dual, w_kim, w_snow, w_ens)
+
+| # | 전략 | 설명 |
+|---|------|------|
+| 1 | 200MA | TQQQ 200일선 3일 확인 |
+| 2 | DualMA(3/161) | QQQ 3/161 골든크로스 |
+| 3 | Kim | 김째 풀 시스템 (27 파라미터) |
+| 4 | Snowball | 눈덩이 매매법 |
+| 5 | Ensemble | α×Kim + (1-α)×Snowball (α=0.5) |
+| 6 | TQQQ B&H | 벤치마크 |
+
+---
+
+## [2026-03-13] 전략 재구성 (v1)
+
 **대상**: `lrs_standalone.py` 프로덕션 전략 구성
 
 ---
