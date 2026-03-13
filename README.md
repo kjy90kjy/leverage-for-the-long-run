@@ -51,7 +51,7 @@ python signals/daily_signal_telegram.py   # Telegram 알림
 ```
 ├── 📄 README.md                      ← 이 파일
 ├── 📄 CLAUDE.md                      ← 상세 프로젝트 가이드
-├── 📄 PROJECT_STRUCTURE.md           ← 디렉토리 구조 상세
+├── 📄 docs/PROJECT_STRUCTURE.md      ← 디렉토리 구조 상세
 │
 ├── 🔧 Root (메인 코어)
 │   ├── leverage_rotation.py          ← 핵심 분석 엔진
@@ -115,7 +115,7 @@ python signals/daily_signal_telegram.py   # Telegram 알림
 
 ### 신규 사용자
 1. **README.md** (본 파일) - 전체 개요
-2. **PROJECT_STRUCTURE.md** - 폴더 및 파일 가이드
+2. **docs/PROJECT_STRUCTURE.md** - 폴더 및 파일 가이드
 3. **docs/OVERHEAT_PLATEAU_ANALYSIS_FINAL.md** - 최신 분석 결과
 4. **CLAUDE.md** - 기술 상세
 
